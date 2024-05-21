@@ -309,4 +309,12 @@ mod tests {
         assert_eq!(word.word_type, WordType::UNKNOWN);
         assert_eq!(word.word.end, 5);
     }
+
+    #[test]
+    fn test_5() {
+        let text = "你好\n世界";
+        let mut indexes = text.char_indices();
+        assert_eq!(indexes.next(), Some((0, '你')));
+        assert_eq!(indexes.next(), Some((3, '好')));
+    }
 }

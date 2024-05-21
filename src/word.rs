@@ -34,6 +34,9 @@ pub struct Word<'a> {
     char_indices: Peekable<CharIndices<'a>>,
 
     word_info_prev: Option<WordInfo>,
+
+    remaining_width: usize,
+    tab_width: usize,
 }
 
 fn is_latin(ch: char) -> bool {
@@ -109,11 +112,21 @@ fn get_char_width(ch: char, tab_width: usize) -> usize {
 }
 
 impl Word<'_> {
-    pub fn new(text: &str) -> Word {
+    pub fn new(text: &str, remaining_width: usize, tab_width: usize) -> Word {
         Word {
             char_indices: text.char_indices().peekable(),
             word_info_prev: None,
+            remaining_width,
+            tab_width,
         }
+    }
+
+    pub fn set_remaining_width(&mut self, remaining_width: usize) {
+        self.remaining_width = remaining_width;
+    }
+
+    pub fn get_remaining_width(&self) -> usize {
+        return self.remaining_width;
     }
 }
 
@@ -125,17 +138,39 @@ impl Iterator for Word<'_> {
 
         let mut word_pos_end = start;
         let mut word_type = WordType::UNKNOWN;
+        let mut word_width = 0;
+        let mut brk_pos = usize::MAX;
+        let mut real_width = 0;
 
         loop {
-            let (_end, ch) = self.char_indices.next()?;
-            let word_len = ch.len_utf8();
+            let ch = self.char_indices.by_ref().peek()?.1;
+            let char_len = ch.len_utf8();
+            let char_width = get_char_width(ch, self.tab_width);
+
+            if char_width > self.remaining_width {
+                return None;
+            }
+
             if word_type == WordType::UNKNOWN {
                 word_type = get_word_type(ch);
             }
 
-            let ch_next = self.char_indices.by_ref().peek();
-            let word_type_next = ch_next.map_or(WordType::UNKNOWN, |v| get_word_type(v.1));
-            word_pos_end += word_len;
+            self.char_indices.next();
+
+            let char_next = self.char_indices.by_ref().peek().map_or(0 as char, |v| v.1);
+            let char_width_next = get_char_width(char_next, self.tab_width);
+            let word_type_next = get_word_type(char_next);
+
+            word_pos_end += char_len;
+            word_width += char_width;
+
+            if word_width + char_width_next > self.remaining_width {
+                if brk_pos == usize::MAX {
+                    brk_pos = word_pos_end;
+                    real_width = word_width;
+                }
+            }
+
             match word_type {
                 WordType::LATIN => {
                     if word_type_next == WordType::LATIN || word_type_next == WordType::NUMBER {
@@ -182,15 +217,21 @@ impl Iterator for Word<'_> {
             }
         }
 
+        if real_width == 0 {
+            real_width = word_width;
+        }
+
+        self.remaining_width -= real_width;
+
         let info = WordInfo {
             position: WordPosition {
                 start,
                 end: word_pos_end,
-                brk: 0,
+                brk: brk_pos,
             },
             word_type,
-            real_width: 0,
-            ideal_width: 0,
+            real_width,
+            ideal_width: word_width,
         };
         self.word_info_prev = Some(info.clone());
         return Some(info);
@@ -204,7 +245,7 @@ mod tests {
     #[test]
     fn test_1() {
         let text = "Hello, world!".to_string();
-        let mut flow = Word::new(&text);
+        let mut flow = Word::new(&text, 10, 4);
 
         let word = flow.next().unwrap();
         assert_eq!(word.word_type, WordType::LATIN);
@@ -226,6 +267,8 @@ mod tests {
         assert_eq!(word.position.end, 12);
         assert_eq!(&text[word.position.start..word.position.end], "world");
 
+        flow.set_remaining_width(12);
+
         let word = flow.next().unwrap();
         assert_eq!(word.word_type, WordType::PUNCTUATION);
         assert_eq!(word.position.end, 13);
@@ -237,7 +280,7 @@ mod tests {
     #[test]
     fn test_2() {
         let text = "".to_string();
-        let mut flow = Word::new(&text);
+        let mut flow = Word::new(&text, 100, 4);
 
         let word = flow.next();
         assert_eq!(word, None);
@@ -246,7 +289,7 @@ mod tests {
     #[test]
     fn test_3() {
         let text = "H".to_string();
-        let mut flow = Word::new(&text);
+        let mut flow = Word::new(&text, 100, 4);
 
         let word = flow.next().unwrap();
         assert_eq!(word.word_type, WordType::LATIN);
@@ -258,7 +301,7 @@ mod tests {
     fn test_4() {
         let text = "你好\n世界 Hello123 456 ".to_string();
 
-        let mut flow = Word::new(&text);
+        let mut flow = Word::new(&text, 100, 4);
 
         let word = flow.next().unwrap();
         assert_eq!(word.word_type, WordType::CJK);

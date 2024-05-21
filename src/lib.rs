@@ -12,12 +12,14 @@ enum WordType {
     UNKNOWN,
 }
 
+#[derive(Debug)]
 struct Position {
     start: usize,
     end: usize,
     brk: usize,
 }
 
+#[derive(Debug)]
 struct WordInfo {
     word: Position,
     word_type: WordType,
@@ -138,7 +140,7 @@ impl TextFlow {
                 ideal_width: 0,
             };
         }
-        let mut word_type = self.get_word_type(self.text.chars().next().unwrap());
+        let mut word_type = self.get_word_type(self.text[start..].chars().next().unwrap());
         let mut word_pos_end = start;
         for (end, ch) in self.text[start + 1..].chars().enumerate() {
             let word_type_next = self.get_word_type(ch);
@@ -151,15 +153,50 @@ impl TextFlow {
                         break;
                     }
                 }
-                WordType::CJK => {}
-                WordType::HYPHEN => {}
-                WordType::NUMBER => {}
-                WordType::PUNCTUATION => {}
-                WordType::RETURN => {}
-                WordType::NEWLINE => {}
-                WordType::SPACE => {}
-                WordType::TAB => {}
-                WordType::UNKNOWN => {}
+                WordType::CJK => {
+                    word_pos_end = start + end;
+                    break;
+                }
+                WordType::HYPHEN => {
+                    if word_type_next == WordType::LATIN || word_type_next == WordType::NUMBER {
+                        word_pos_end = start + end;
+                        break;
+                    } else {
+                        continue;
+                    }
+                }
+                WordType::NUMBER => {
+                    if word_type_next == WordType::NUMBER {
+                        word_pos_end = start + end;
+                        break;
+                    } else {
+                        continue;
+                    }
+                }
+                WordType::PUNCTUATION => {
+                    word_pos_end = start + end;
+                    break;
+                }
+                WordType::RETURN => {
+                    word_pos_end = start + end;
+                    break;
+                }
+                WordType::NEWLINE => {
+                    word_pos_end = start + end;
+                    break;
+                }
+                WordType::SPACE => {
+                    word_pos_end = start + end;
+                    break;
+                }
+                WordType::TAB => {
+                    word_pos_end = start + end;
+                    break;
+                }
+                WordType::UNKNOWN => {
+                    word_pos_end = start + end;
+                    break;
+                }
             }
 
             word_type = word_type_next;
@@ -168,7 +205,7 @@ impl TextFlow {
         return WordInfo {
             word: Position {
                 start,
-                end: word_pos_end,
+                end: word_pos_end + 1,
                 brk: 0,
             },
             word_type,
@@ -189,6 +226,20 @@ mod tests {
 
         let word = flow.get_next_word(0);
         assert_eq!(word.word_type, WordType::LATIN);
-        assert_eq!(word.word.end, 4);
+        assert_eq!(word.word.end, 5);
+
+        let word = flow.get_next_word(word.word.end);
+        assert_eq!(word.word_type, WordType::PUNCTUATION);
+        assert_eq!(word.word.end, 6);
+
+        let word = flow.get_next_word(word.word.end);
+        assert_eq!(word.word_type, WordType::SPACE);
+        assert_eq!(word.word.end, 7);
+
+        let word = flow.get_next_word(word.word.end);
+        assert_eq!(word.word_type, WordType::LATIN);
+        assert_eq!(word.word.end, 12);
+
+        println!("{:?}", word);
     }
 }

@@ -1,3 +1,5 @@
+use std::str::CharIndices;
+
 #[derive(PartialEq, Debug)]
 enum WordType {
     LATIN,
@@ -32,18 +34,25 @@ struct LineInfo {
     words: Vec<WordInfo>,
 }
 
-struct TextFlow {
-    text: String,
+struct TextFlowContext<'a> {
+    char_indices: CharIndices<'a>,
+}
+
+struct TextFlow<'a> {
+    text: &'a String,
     max_width: usize,
     line_height: usize,
     line_spacing: usize,
     word_spacing: usize,
     tab_width: usize,
+
+    context: TextFlowContext<'a>,
+
     lines: Vec<LineInfo>,
 }
 
-impl TextFlow {
-    fn new(text: String, max_width: usize) -> TextFlow {
+impl TextFlow<'_> {
+    fn new(text: &'_ String, max_width: usize) -> TextFlow {
         TextFlow {
             text,
             max_width,
@@ -51,25 +60,28 @@ impl TextFlow {
             line_spacing: 0,
             word_spacing: 0,
             tab_width: 0,
+            context: TextFlowContext {
+                char_indices: text.char_indices(),
+            },
             lines: Vec::new(),
         }
     }
 
-    fn is_latin(&self, ch: char) -> bool {
+    fn is_latin(ch: char) -> bool {
         if ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' {
             return true;
         }
         return false;
     }
 
-    fn is_cjk(&self, ch: char) -> bool {
+    fn is_cjk(ch: char) -> bool {
         if ch >= '\u{4e00}' && ch <= '\u{9fff}' {
             return true;
         }
         return false;
     }
 
-    fn is_punctuation(&self, ch: char) -> bool {
+    fn is_punctuation(ch: char) -> bool {
         if ch == '.'
             || ch == ','
             || ch == ';'
@@ -88,16 +100,16 @@ impl TextFlow {
         return false;
     }
 
-    fn get_word_type(&self, ch: char) -> WordType {
-        if self.is_latin(ch) {
+    fn get_word_type(ch: char) -> WordType {
+        if Self::is_latin(ch) {
             return WordType::LATIN;
-        } else if self.is_cjk(ch) {
+        } else if Self::is_cjk(ch) {
             return WordType::CJK;
         } else if ch == '-' {
             return WordType::HYPHEN;
         } else if ch >= '0' && ch <= '9' {
             return WordType::NUMBER;
-        } else if self.is_punctuation(ch) {
+        } else if Self::is_punctuation(ch) {
             return WordType::PUNCTUATION;
         } else if ch == '\n' {
             return WordType::NEWLINE;
@@ -112,7 +124,7 @@ impl TextFlow {
     }
 
     fn get_char_width(&self, ch: char) -> usize {
-        let char_type = self.get_word_type(ch);
+        let char_type = Self::get_word_type(ch);
         return match char_type {
             WordType::LATIN => 1,
             WordType::CJK => 2,
@@ -127,7 +139,7 @@ impl TextFlow {
         };
     }
 
-    fn get_next_word(&self, start: usize) -> WordInfo {
+    fn get_next_word(&mut self, start: usize) -> WordInfo {
         if self.text.len() == 0 {
             return WordInfo {
                 word: Position {
@@ -141,10 +153,8 @@ impl TextFlow {
             };
         }
 
-        let mut word_iter = self.text.chars().enumerate().skip(start);
-
-        let mut word_type = if let Some(first_char) = word_iter.next() {
-            self.get_word_type(first_char.1)
+        let mut word_type = if let Some(first_char) = self.context.char_indices.next() {
+            Self::get_word_type(first_char.1)
         } else {
             return WordInfo {
                 word: Position {
@@ -159,8 +169,8 @@ impl TextFlow {
         };
 
         let mut word_pos_end = start + 1;
-        for (end, ch) in word_iter {
-            let word_type_next = self.get_word_type(ch);
+        for (end, ch) in self.context.char_indices.by_ref() {
+            let word_type_next = Self::get_word_type(ch);
             match word_type {
                 WordType::LATIN => {
                     if word_type_next == WordType::LATIN || word_type_next == WordType::NUMBER {
@@ -238,8 +248,8 @@ mod tests {
 
     #[test]
     fn test_1() {
-        let text = "Hello, world!";
-        let flow = TextFlow::new(text.to_string(), 10);
+        let text = "Hello, world!".to_string();
+        let mut flow = TextFlow::new(&text, 10);
 
         let word = flow.get_next_word(0);
         assert_eq!(word.word_type, WordType::LATIN);
@@ -260,8 +270,8 @@ mod tests {
 
     #[test]
     fn test_2() {
-        let text = "";
-        let flow = TextFlow::new(text.to_string(), 10);
+        let text = "".to_string();
+        let mut flow = TextFlow::new(&text, 10);
 
         let word = flow.get_next_word(0);
         assert_eq!(word.word_type, WordType::UNKNOWN);
@@ -269,8 +279,8 @@ mod tests {
 
     #[test]
     fn test_3() {
-        let text = "H";
-        let flow = TextFlow::new(text.to_string(), 10);
+        let text = "H".to_string();
+        let mut flow = TextFlow::new(&text, 10);
 
         let word = flow.get_next_word(0);
         assert_eq!(word.word_type, WordType::LATIN);
@@ -279,11 +289,11 @@ mod tests {
 
     #[test]
     fn test_4() {
-        let text = "你好\n世界";
+        let text = "你好\n世界".to_string();
 
         assert_eq!(text.chars().count(), 5);
 
-        let flow = TextFlow::new(text.to_string(), 10);
+        let mut flow = TextFlow::new(&text, 10);
 
         let word = flow.get_next_word(0);
         assert_eq!(word.word_type, WordType::CJK);

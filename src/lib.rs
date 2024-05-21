@@ -140,26 +140,43 @@ impl TextFlow {
                 ideal_width: 0,
             };
         }
-        let mut word_type = self.get_word_type(self.text[start..].chars().next().unwrap());
-        let mut word_pos_end = start;
-        for (end, ch) in self.text[start + 1..].chars().enumerate() {
+
+        let mut word_iter = self.text.chars().enumerate().skip(start);
+
+        let mut word_type = if let Some(first_char) = word_iter.next() {
+            self.get_word_type(first_char.1)
+        } else {
+            return WordInfo {
+                word: Position {
+                    start: start,
+                    end: start,
+                    brk: 0,
+                },
+                word_type: WordType::UNKNOWN,
+                real_width: 0,
+                ideal_width: 0,
+            };
+        };
+
+        let mut word_pos_end = start + 1;
+        for (end, ch) in word_iter {
             let word_type_next = self.get_word_type(ch);
             match word_type {
                 WordType::LATIN => {
                     if word_type_next == WordType::LATIN || word_type_next == WordType::NUMBER {
                         continue;
                     } else {
-                        word_pos_end = start + end;
+                        word_pos_end = end;
                         break;
                     }
                 }
                 WordType::CJK => {
-                    word_pos_end = start + end;
+                    word_pos_end = end;
                     break;
                 }
                 WordType::HYPHEN => {
                     if word_type_next == WordType::LATIN || word_type_next == WordType::NUMBER {
-                        word_pos_end = start + end;
+                        word_pos_end = end;
                         break;
                     } else {
                         continue;
@@ -167,34 +184,34 @@ impl TextFlow {
                 }
                 WordType::NUMBER => {
                     if word_type_next == WordType::NUMBER {
-                        word_pos_end = start + end;
+                        word_pos_end = end;
                         break;
                     } else {
                         continue;
                     }
                 }
                 WordType::PUNCTUATION => {
-                    word_pos_end = start + end;
+                    word_pos_end = end;
                     break;
                 }
                 WordType::RETURN => {
-                    word_pos_end = start + end;
+                    word_pos_end = end;
                     break;
                 }
                 WordType::NEWLINE => {
-                    word_pos_end = start + end;
+                    word_pos_end = end;
                     break;
                 }
                 WordType::SPACE => {
-                    word_pos_end = start + end;
+                    word_pos_end = end;
                     break;
                 }
                 WordType::TAB => {
-                    word_pos_end = start + end;
+                    word_pos_end = end;
                     break;
                 }
                 WordType::UNKNOWN => {
-                    word_pos_end = start + end;
+                    word_pos_end = end;
                     break;
                 }
             }
@@ -205,7 +222,7 @@ impl TextFlow {
         return WordInfo {
             word: Position {
                 start,
-                end: word_pos_end + 1,
+                end: word_pos_end,
                 brk: 0,
             },
             word_type,
@@ -220,7 +237,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn it_works() {
+    fn test_1() {
         let text = "Hello, world!";
         let flow = TextFlow::new(text.to_string(), 10);
 
@@ -239,7 +256,57 @@ mod tests {
         let word = flow.get_next_word(word.word.end);
         assert_eq!(word.word_type, WordType::LATIN);
         assert_eq!(word.word.end, 12);
+    }
 
-        println!("{:?}", word);
+    #[test]
+    fn test_2() {
+        let text = "";
+        let flow = TextFlow::new(text.to_string(), 10);
+
+        let word = flow.get_next_word(0);
+        assert_eq!(word.word_type, WordType::UNKNOWN);
+    }
+
+    #[test]
+    fn test_3() {
+        let text = "H";
+        let flow = TextFlow::new(text.to_string(), 10);
+
+        let word = flow.get_next_word(0);
+        assert_eq!(word.word_type, WordType::LATIN);
+        assert_eq!(word.word.end, 1);
+    }
+
+    #[test]
+    fn test_4() {
+        let text = "你好\n世界";
+
+        assert_eq!(text.chars().count(), 5);
+
+        let flow = TextFlow::new(text.to_string(), 10);
+
+        let word = flow.get_next_word(0);
+        assert_eq!(word.word_type, WordType::CJK);
+        assert_eq!(word.word.end, 1);
+
+        let word = flow.get_next_word(word.word.end);
+        assert_eq!(word.word_type, WordType::CJK);
+        assert_eq!(word.word.end, 2);
+
+        let word = flow.get_next_word(word.word.end);
+        assert_eq!(word.word_type, WordType::NEWLINE);
+        assert_eq!(word.word.end, 3);
+
+        let word = flow.get_next_word(word.word.end);
+        assert_eq!(word.word_type, WordType::CJK);
+        assert_eq!(word.word.end, 4);
+
+        let word = flow.get_next_word(word.word.end);
+        assert_eq!(word.word_type, WordType::CJK);
+        assert_eq!(word.word.end, 5);
+
+        let word = flow.get_next_word(word.word.end);
+        assert_eq!(word.word_type, WordType::UNKNOWN);
+        assert_eq!(word.word.end, 5);
     }
 }

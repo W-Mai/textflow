@@ -134,7 +134,9 @@ impl Iterator for Word<'_> {
         loop {
             let (end, ch) = self.char_indices.next()?;
             let word_len = ch.len_utf8();
-            word_type = get_word_type(ch);
+            if word_type == WordType::UNKNOWN {
+                word_type = get_word_type(ch);
+            }
 
             let ch_next = self.char_indices.by_ref().peek();
             let word_type_next = if let Some(ch_next) = ch_next {
@@ -217,22 +219,27 @@ mod tests {
         let word = flow.next().unwrap();
         assert_eq!(word.word_type, WordType::LATIN);
         assert_eq!(word.position.end, 5);
+        assert_eq!(&text[word.position.start..word.position.end], "Hello");
 
         let word = flow.next().unwrap();
         assert_eq!(word.word_type, WordType::PUNCTUATION);
         assert_eq!(word.position.end, 6);
+        assert_eq!(&text[word.position.start..word.position.end], ",");
 
         let word = flow.next().unwrap();
         assert_eq!(word.word_type, WordType::SPACE);
         assert_eq!(word.position.end, 7);
+        assert_eq!(&text[word.position.start..word.position.end], " ");
 
         let word = flow.next().unwrap();
         assert_eq!(word.word_type, WordType::LATIN);
         assert_eq!(word.position.end, 12);
+        assert_eq!(&text[word.position.start..word.position.end], "world");
 
         let word = flow.next().unwrap();
         assert_eq!(word.word_type, WordType::PUNCTUATION);
         assert_eq!(word.position.end, 13);
+        assert_eq!(&text[word.position.start..word.position.end], "!");
 
         assert_eq!(flow.next(), None);
     }
@@ -254,33 +261,64 @@ mod tests {
         let word = flow.next().unwrap();
         assert_eq!(word.word_type, WordType::LATIN);
         assert_eq!(word.position.end, 1);
+        assert_eq!(&text[word.position.start..word.position.end], "H");
     }
 
     #[test]
     fn test_4() {
-        let text = "你好\n世界".to_string();
+        let text = "你好\n世界 Hello123 456 ".to_string();
 
         let mut flow = Word::new(&text);
 
         let word = flow.next().unwrap();
         assert_eq!(word.word_type, WordType::CJK);
         assert_eq!(word.position.end, 3);
+        assert_eq!(&text[word.position.start..word.position.end], "你");
 
         let word = flow.next().unwrap();
         assert_eq!(word.word_type, WordType::CJK);
         assert_eq!(word.position.end, 6);
+        assert_eq!(&text[word.position.start..word.position.end], "好");
 
         let word = flow.next().unwrap();
         assert_eq!(word.word_type, WordType::NEWLINE);
         assert_eq!(word.position.end, 7);
+        assert_eq!(&text[word.position.start..word.position.end], "\n");
 
         let word = flow.next().unwrap();
         assert_eq!(word.word_type, WordType::CJK);
         assert_eq!(word.position.end, 10);
+        assert_eq!(&text[word.position.start..word.position.end], "世");
 
         let word = flow.next().unwrap();
         assert_eq!(word.word_type, WordType::CJK);
         assert_eq!(word.position.end, 13);
+        assert_eq!(&text[word.position.start..word.position.end], "界");
+
+        let word = flow.next().unwrap();
+        assert_eq!(word.word_type, WordType::SPACE);
+        assert_eq!(word.position.end, 14);
+        assert_eq!(&text[word.position.start..word.position.end], " ");
+
+        let word = flow.next().unwrap();
+        assert_eq!(word.word_type, WordType::LATIN);
+        assert_eq!(word.position.end, 22);
+        assert_eq!(&text[word.position.start..word.position.end], "Hello123");
+
+        let word = flow.next().unwrap();
+        assert_eq!(word.word_type, WordType::SPACE);
+        assert_eq!(word.position.end, 23);
+        assert_eq!(&text[word.position.start..word.position.end], " ");
+
+        let word = flow.next().unwrap();
+        assert_eq!(word.word_type, WordType::NUMBER);
+        assert_eq!(word.position.end, 26);
+        assert_eq!(&text[word.position.start..word.position.end], "456");
+
+        let word = flow.next().unwrap();
+        assert_eq!(word.word_type, WordType::SPACE);
+        assert_eq!(word.position.end, 27);
+        assert_eq!(&text[word.position.start..word.position.end], " ");
 
         assert_eq!(flow.next(), None);
     }

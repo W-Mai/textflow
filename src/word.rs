@@ -121,29 +121,20 @@ impl Iterator for Word<'_> {
     type Item = WordInfo;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let start = if let Some(prev) = &self.word_info_prev {
-            prev.position.end
-        } else {
-            0
-        };
+        let start = self.word_info_prev.as_ref().map_or(0, |v| v.position.end);
 
         let mut word_pos_end = start;
         let mut word_type = WordType::UNKNOWN;
 
-        // let mut word_pos_end = (&self.word_info_prev?).position.end;
         loop {
-            let (end, ch) = self.char_indices.next()?;
+            let (_end, ch) = self.char_indices.next()?;
             let word_len = ch.len_utf8();
             if word_type == WordType::UNKNOWN {
                 word_type = get_word_type(ch);
             }
 
             let ch_next = self.char_indices.by_ref().peek();
-            let word_type_next = if let Some(ch_next) = ch_next {
-                get_word_type(ch_next.1)
-            } else {
-                WordType::UNKNOWN
-            };
+            let word_type_next = ch_next.map_or(WordType::UNKNOWN, |v| get_word_type(v.1));
             word_pos_end += word_len;
             match word_type {
                 WordType::LATIN => {
@@ -191,7 +182,6 @@ impl Iterator for Word<'_> {
             }
         }
 
-        // word_pos_end += 1;
         let info = WordInfo {
             position: WordPosition {
                 start,

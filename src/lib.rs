@@ -1,4 +1,5 @@
 mod word;
+mod line;
 
 use crate::word::{Word, WordInfo, WordPosition, WordType};
 use std::str::CharIndices;

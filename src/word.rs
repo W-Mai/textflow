@@ -203,6 +203,7 @@ impl Iterator for Word<'_> {
                     break;
                 }
                 WordType::NEWLINE => {
+                    brk_pos = word_pos_end - 1;
                     break;
                 }
                 WordType::SPACE => {

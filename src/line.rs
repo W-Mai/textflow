@@ -1,4 +1,4 @@
-use crate::word::{Word, WordType};
+use crate::word::{Word, WordInfo, WordType};
 use std::iter::Peekable;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -8,7 +8,7 @@ pub struct LinePosition {
     pub brk: usize,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct LineInfo {
     pub position: LinePosition,
     pub line_height: usize,
@@ -59,21 +59,49 @@ impl Iterator for Line<'_> {
         )
         .peekable();
 
+        let mut end = 0;
+        let mut brk = 0;
+
         loop {
-            let word = word_iter.by_ref().peek()?.clone();
-            if word.ideal_width >= self.max_width
-                || word.word_type == WordType::NEWLINE
-                || word.word_type == WordType::TAB
-                || word.word_type == WordType::SPACE
-                || word.word_type == WordType::RETURN
-            {
+            let mut word = word_iter.by_ref().peek()?.clone();
+
+            if word.position.brk != usize::MAX {
+                end = word.position.end;
+                brk = word.position.brk;
+
+                if word.word_type == WordType::RETURN || word.word_type == WordType::NEWLINE {
+                    word_iter.next();
+                }
                 break;
             }
+
             word_iter.next();
-            line_info.position.end = word.position.end;
         }
 
+        line_info.position.end = line_info.position.start + end;
+        line_info.position.brk = line_info.position.start + brk;
         self.line_info_prev = Some(line_info.clone());
         Some(line_info)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_line_1() {
+        let text = "八百标\n兵奔北坡炮兵\n并排北边跑炮兵怕把标兵碰标兵怕碰炮兵炮";
+        // let flow = Line::new(text, 11, 4);
+        //
+        // for line in flow {
+        //     println!("{:?}", line);
+        // }
+
+        let flow = Line::new(text, 16, 4);
+
+        for line in flow {
+            println!("{}", &text[line.position.start..line.position.brk]);
+        }
     }
 }

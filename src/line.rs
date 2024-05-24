@@ -59,11 +59,11 @@ impl Iterator for Line<'_> {
         )
         .peekable();
 
-        let mut end = 0;
-        let mut brk = 0;
+        let end;
+        let brk;
 
         loop {
-            let mut word = word_iter.by_ref().peek()?.clone();
+            let word = word_iter.by_ref().peek()?.clone();
 
             if word.position.brk != usize::MAX {
                 end = word.position.end;
@@ -76,6 +76,13 @@ impl Iterator for Line<'_> {
             }
 
             word_iter.next();
+
+            let word_next = word_iter.by_ref().peek();
+            if word_next.is_none() {
+                end = word.position.end;
+                brk = word.position.end;
+                break;
+            }
         }
 
         line_info.position.end = line_info.position.start + end;
@@ -92,11 +99,6 @@ mod tests {
     #[test]
     fn test_line_1() {
         let text = "八百标\n兵奔北坡炮兵\n并排北边跑炮兵怕把标兵碰标兵怕碰炮兵炮";
-        // let flow = Line::new(text, 11, 4);
-        //
-        // for line in flow {
-        //     println!("{:?}", line);
-        // }
 
         let flow = Line::new(text, 16, 4);
 

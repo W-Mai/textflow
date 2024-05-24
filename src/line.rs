@@ -98,12 +98,20 @@ mod tests {
 
     #[test]
     fn test_line_1() {
-        let text = "八百标\n兵奔北坡炮兵\n并排北边跑炮兵怕把标兵碰标兵怕碰炮兵炮";
+        let text = "The \nquick brown fox jumps over a lazy dog. abcdefghijklmn";
 
-        let flow = Line::new(text, 16, 4);
+        let N = 12;
+
+        let flow = Line::new(text, N, 4);
 
         for line in flow {
-            println!("{}", &text[line.position.start..line.position.brk]);
+            let mut display_buffer = String::new();
+            display_buffer += &text[line.position.start..line.position.brk];
+            for _ in display_buffer.chars().count()..N {
+                display_buffer += " ";
+            }
+            display_buffer += "|";
+            println!("{}", display_buffer);
         }
     }
 }

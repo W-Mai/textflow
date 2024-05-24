@@ -42,7 +42,7 @@ impl Iterator for Line<'_> {
     fn next(&mut self) -> Option<Self::Item> {
         let mut line_info = LineInfo {
             position: LinePosition {
-                start: self.line_info_prev.as_ref().map_or(0, |v| v.position.end),
+                start: self.line_info_prev.as_ref().map_or(0, |v| v.position.brk),
                 end: 0,
                 brk: 0,
             },
@@ -65,23 +65,29 @@ impl Iterator for Line<'_> {
         loop {
             let word = word_iter.by_ref().peek()?.clone();
 
-            if word.position.brk != usize::MAX {
-                end = word.position.end;
-                brk = word.position.brk;
-
-                if word.word_type == WordType::RETURN || word.word_type == WordType::NEWLINE {
-                    word_iter.next();
-                }
-                break;
-            }
-
             word_iter.next();
 
             let word_next = word_iter.by_ref().peek();
-            if word_next.is_none() {
-                end = word.position.end;
-                brk = word.position.end;
-                break;
+            match word_next {
+                None => {
+                    end = word.position.end;
+                    brk = word.position.end;
+                    word_iter.next();
+                    break;
+                }
+                Some(word_next) => {
+                    if word_next.position.brk != usize::MAX {
+                        end = word.position.end;
+                        brk = word.position.end;
+
+                        if word_next.word_type == WordType::RETURN
+                            || word_next.word_type == WordType::NEWLINE
+                        {
+                            word_iter.next();
+                        }
+                        break;
+                    }
+                }
             }
         }
 
@@ -98,16 +104,16 @@ mod tests {
 
     #[test]
     fn test_line_1() {
-        let text = "The \nquick brown fox jumps over a lazy dog. abcdefghijklmn";
+        let text = "The quick brown fox jumps over a lazy dog. abcdefghijklmn";
 
-        let N = 12;
+        let n = 12;
 
-        let flow = Line::new(text, N, 4);
+        let flow = Line::new(text, n, 4);
 
         for line in flow {
             let mut display_buffer = String::new();
             display_buffer += &text[line.position.start..line.position.brk];
-            for _ in display_buffer.chars().count()..N {
+            for _ in display_buffer.chars().count()..n {
                 display_buffer += " ";
             }
             display_buffer += "|";

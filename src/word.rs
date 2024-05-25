@@ -134,12 +134,13 @@ impl Iterator for Word<'_> {
     type Item = WordInfo;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let start = self.word_info_prev.as_ref().map_or(0, |v| v.position.end);
+        let word_info_prev_ref = self.word_info_prev.as_ref();
+        let start = word_info_prev_ref.map_or(0, |v| v.position.end);
 
         let mut word_pos_end = start;
         let mut word_type = WordType::UNKNOWN;
         let mut word_width = 0;
-        let mut brk_pos = usize::MAX;
+        let mut brk_pos = word_info_prev_ref.map_or(usize::MAX, |v| v.position.brk);
         let mut real_width = 0;
 
         loop {
@@ -147,14 +148,10 @@ impl Iterator for Word<'_> {
             let char_len = ch.len_utf8();
             let char_width = get_char_width(ch, self.tab_width);
 
-            if char_width > self.remaining_width {
-                return None;
-            }
-
             if word_type == WordType::UNKNOWN {
                 word_type = get_word_type(ch);
             }
-
+            
             self.char_indices.next();
 
             let char_next = self.char_indices.by_ref().peek().map_or(0 as char, |v| v.1);
@@ -222,7 +219,9 @@ impl Iterator for Word<'_> {
             real_width = word_width;
         }
 
-        self.remaining_width -= real_width;
+        if self.remaining_width >= real_width {
+            self.remaining_width -= real_width;
+        }
 
         let info = WordInfo {
             position: WordPosition {
@@ -267,12 +266,11 @@ mod tests {
         assert_eq!(word.word_type, WordType::LATIN);
         assert_eq!(word.position.end, 12);
         assert_eq!(&text[word.position.start..word.position.end], "world");
-
-        flow.set_remaining_width(12);
-
+        
         let word = flow.next().unwrap();
         assert_eq!(word.word_type, WordType::PUNCTUATION);
         assert_eq!(word.position.end, 13);
+        assert_eq!(word.position.brk, 10);
         assert_eq!(&text[word.position.start..word.position.end], "!");
 
         assert_eq!(flow.next(), None);

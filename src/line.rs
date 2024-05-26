@@ -59,8 +59,8 @@ impl Iterator for Line<'_> {
         )
         .peekable();
 
-        let end;
-        let brk;
+        let mut end;
+        let mut brk;
 
         loop {
             let word = word_iter.by_ref().peek()?.clone();
@@ -68,26 +68,38 @@ impl Iterator for Line<'_> {
             word_iter.next();
 
             let word_next = word_iter.by_ref().peek();
-            match word_next {
-                None => {
+            if let Some(word_next) = word_next {
+                if word_next.position.brk != usize::MAX {
                     end = word.position.end;
                     brk = word.position.end;
-                    word_iter.next();
+
+                    if word_next.word_type == WordType::RETURN
+                        || word_next.word_type == WordType::NEWLINE
+                    {
+                        word_iter.next();
+                    }
                     break;
-                }
-                Some(word_next) => {
-                    if word_next.position.brk != usize::MAX {
+                } else {
+                    if word_next.word_type == WordType::RETURN
+                        || word_next.word_type == WordType::NEWLINE
+                    {
                         end = word.position.end;
                         brk = word.position.end;
-
-                        if word_next.word_type == WordType::RETURN
-                            || word_next.word_type == WordType::NEWLINE
-                        {
-                            word_iter.next();
-                        }
+                        word_iter.next();
                         break;
+                    } else if word_next.word_type == WordType::PUNCTUATION {
+                        end = word.position.end;
+                        brk = word.position.end;
+                    } else {
+                        end = word.position.end;
+                        brk = word.position.end;
                     }
                 }
+            } else {
+                end = word.position.end;
+                brk = word.position.end;
+                word_iter.next();
+                break;
             }
         }
 
@@ -104,7 +116,8 @@ mod tests {
 
     #[test]
     fn test_line_1() {
-        let text = "The quick brown fox jumps over a lazy dog. abcdefghijklmn";
+        let text = "jumps over a lazy dogg. abcdefghijklmn";
+        let text = "a lazy dogg. ";
 
         let n = 12;
 
@@ -113,7 +126,7 @@ mod tests {
         for line in flow {
             let mut display_buffer = String::new();
             display_buffer += &text[line.position.start..line.position.brk];
-            for _ in display_buffer.chars().count()..n {
+            for _ in display_buffer.chars().count()..n - 1 {
                 display_buffer += " ";
             }
             display_buffer += "|";

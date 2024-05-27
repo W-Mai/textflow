@@ -77,20 +77,13 @@ impl Iterator for Line<'_> {
                         || word_next.word_type == WordType::NEWLINE
                     {
                         word_iter.next();
+                    } else if word_next.word_type == WordType::PUNCTUATION {
+                        end = word.position.start;
+                        brk = word.position.start;
                     }
                     break;
                 } else {
-                    if word_next.word_type == WordType::RETURN
-                        || word_next.word_type == WordType::NEWLINE
                     {
-                        end = word.position.end;
-                        brk = word.position.end;
-                        word_iter.next();
-                        break;
-                    } else if word_next.word_type == WordType::PUNCTUATION {
-                        end = word.position.end;
-                        brk = word.position.end;
-                    } else {
                         end = word.position.end;
                         brk = word.position.end;
                     }
@@ -116,21 +109,24 @@ mod tests {
 
     #[test]
     fn test_line_1() {
-        let text = "jumps over a lazy dogg. abcdefghijklmn";
-        let text = "a lazy dogg. ";
+        let text = "The quick brown fox jumps over a lazy dog.";
 
-        let n = 12;
+        let n = 21;
 
         let flow = Line::new(text, n, 4);
 
         for line in flow {
             let mut display_buffer = String::new();
-            display_buffer += &text[line.position.start..line.position.brk];
+            display_buffer += &text[line.position.start..line.position.end];
             for _ in display_buffer.chars().count()..n - 1 {
                 display_buffer += " ";
             }
             display_buffer += "|";
-            println!("{}", display_buffer);
+            println!(
+                "{} {:?}",
+                display_buffer,
+                line.position.start..line.position.end
+            );
         }
     }
 }

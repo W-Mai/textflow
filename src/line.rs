@@ -69,7 +69,9 @@ impl Iterator for Line<'_> {
 
             let word_next = word_iter.by_ref().peek();
             if let Some(word_next) = word_next {
-                if word_next.position.brk != usize::MAX {
+                if word_next.position.brk != usize::MAX
+                    && word_next.position.brk != word_next.position.end
+                {
                     end = word.position.end;
                     brk = word.position.end;
 

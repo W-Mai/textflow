@@ -25,7 +25,7 @@ pub struct Line<'a> {
 }
 
 impl Line<'_> {
-    fn new(text: &str, max_width: usize, tab_width: usize) -> Line {
+    pub fn new(text: &str, max_width: usize, tab_width: usize) -> Line {
         Line {
             text,
             line_info_prev: None,

@@ -1,45 +1,63 @@
-use std::str::CharIndices;
+use crate::line::{Line, LineInfo};
 
-use crate::word::{WordInfo, WordPosition};
-
-mod word;
 mod line;
+mod word;
 
-struct LineInfo {
-    line: WordPosition,
-    words: Vec<WordInfo>,
-}
+#[allow(dead_code)]
+struct TextFlowContext {}
 
-struct TextFlowContext<'a> {
-    char_indices: CharIndices<'a>,
-}
-
+#[allow(dead_code)]
 struct TextFlow<'a> {
-    text: &'a String,
+    text: &'a str,
     max_width: usize,
     line_height: usize,
     line_spacing: usize,
     word_spacing: usize,
     tab_width: usize,
 
-    context: TextFlowContext<'a>,
+    context: TextFlowContext,
 
-    lines: Vec<LineInfo>,
+    lines: Line<'a>,
 }
 
 impl TextFlow<'_> {
-    fn new(text: &'_ String, max_width: usize) -> TextFlow {
-        TextFlow {
+    fn new(text: &str, max_width: usize) -> TextFlow {
+        let mut flow = TextFlow {
             text,
             max_width,
             line_height: 0,
             line_spacing: 0,
             word_spacing: 0,
             tab_width: 0,
-            context: TextFlowContext {
-                char_indices: text.char_indices(),
-            },
-            lines: Vec::new(),
-        }
+            context: TextFlowContext {},
+            lines: Line::new("", 0, 0),
+        };
+
+        flow.lines = Line::new(flow.text, flow.max_width, flow.tab_width);
+
+        flow
+    }
+}
+
+impl Iterator for TextFlow<'_> {
+    type Item = LineInfo;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.lines.next()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_1() {
+        let text = "Hello, world!";
+        let max_width = 10;
+        let mut flow = TextFlow::new(text, max_width);
+
+        let line = flow.next();
+        println!("{:#?}", line);
     }
 }

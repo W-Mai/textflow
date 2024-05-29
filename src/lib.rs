@@ -1,8 +1,9 @@
+use std::str::CharIndices;
+
+use crate::word::{WordInfo, WordPosition};
+
 mod word;
 mod line;
-
-use crate::word::{Word, WordInfo, WordPosition, WordType};
-use std::str::CharIndices;
 
 struct LineInfo {
     line: WordPosition,

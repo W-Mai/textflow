@@ -1,5 +1,4 @@
-use crate::word::{Word, WordInfo, WordType};
-use std::iter::Peekable;
+use crate::word::{Word, WordType};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LinePosition {
@@ -86,11 +85,6 @@ impl Iterator for Line<'_> {
                         brk = word.position.start;
                     }
                     break;
-                } else {
-                    {
-                        end = word.position.end;
-                        brk = word.position.end;
-                    }
                 }
             } else {
                 end = word.position.end;
@@ -134,6 +128,7 @@ mod tests {
                 text_len
             );
         }
+        println!();
     }
 
     #[test]

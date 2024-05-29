@@ -79,7 +79,9 @@ impl Iterator for Line<'_> {
                         || word_next.word_type == WordType::NEWLINE
                     {
                         word_iter.next();
-                    } else if word_next.word_type == WordType::PUNCTUATION {
+                    } else if word.word_type != WordType::PUNCTUATION
+                        && word_next.word_type == WordType::PUNCTUATION
+                    {
                         end = word.position.start;
                         brk = word.position.start;
                     }
@@ -147,8 +149,8 @@ mod tests {
     #[test]
     fn test_line_3() {
         do_a_test(
-            "为了提供更好的服务，，，请您在使用前充分阅读《TextFlow 使用隐私政策》",
-            20,
+            "为了提供更好的服务，请您在使用前充分阅读《TextFlow 使用隐私政策》",
+            21,
         );
     }
 }

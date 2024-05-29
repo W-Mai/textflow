@@ -1,4 +1,5 @@
 use std::iter::Peekable;
+use std::ops::Not;
 use std::str::CharIndices;
 
 #[derive(PartialEq, Debug, Clone)]
@@ -66,6 +67,27 @@ fn is_punctuation(ch: char) -> bool {
         || ch == ']'
         || ch == '{'
         || ch == '}'
+        || ch == '。'
+        || ch == '，'
+        || ch == '、'
+        || ch == '？'
+        || ch == '！'
+        || ch == '：'
+        || ch == '；'
+        || ch == '（'
+        || ch == '）'
+        || ch == '「'
+        || ch == '」'
+        || ch == '『'
+        || ch == '』'
+        || ch == '【'
+        || ch == '】'
+        || ch == '〔'
+        || ch == '〕'
+        || ch == '〈'
+        || ch == '〉'
+        || ch == '《'
+        || ch == '》'
     {
         return true;
     }
@@ -102,7 +124,7 @@ fn get_char_width(ch: char, tab_width: usize) -> usize {
         WordType::CJK => 2,
         WordType::HYPHEN => 1,
         WordType::NUMBER => 1,
-        WordType::PUNCTUATION => 1,
+        WordType::PUNCTUATION => ch.is_ascii().not() as usize + 1,
         WordType::RETURN => 0,
         WordType::NEWLINE => 0,
         WordType::SPACE => 1,
@@ -151,7 +173,7 @@ impl Iterator for Word<'_> {
             if word_type == WordType::UNKNOWN {
                 word_type = get_word_type(ch);
             }
-            
+
             self.char_indices.next();
 
             let char_next = self.char_indices.by_ref().peek().map_or(0 as char, |v| v.1);
@@ -266,7 +288,7 @@ mod tests {
         assert_eq!(word.word_type, WordType::LATIN);
         assert_eq!(word.position.end, 12);
         assert_eq!(&text[word.position.start..word.position.end], "world");
-        
+
         let word = flow.next().unwrap();
         assert_eq!(word.word_type, WordType::PUNCTUATION);
         assert_eq!(word.position.end, 13);

@@ -109,11 +109,7 @@ impl Iterator for Line<'_> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_line_1() {
-        let text = "The quick brown fox jumps over a lazy dog.";
-        let n = 15;
-
+    fn do_a_test(text: &str, n: usize) {
         let flow = Line::new(text, n, 4);
 
         for line in flow {
@@ -136,5 +132,23 @@ mod tests {
                 text_len
             );
         }
+    }
+
+    #[test]
+    fn test_line_1() {
+        do_a_test("The quick brown fox jumps over a lazy dog.", 15);
+    }
+
+    #[test]
+    fn test_line_2() {
+        do_a_test("八百标兵奔北坡炮兵并排北边跑666中英文测试。The quick brown fox jumps over a lazy dog. abcdefghijklmn", 14);
+    }
+
+    #[test]
+    fn test_line_3() {
+        do_a_test(
+            "为了提供更好的服务，，，请您在使用前充分阅读《TextFlow 使用隐私政策》",
+            20,
+        );
     }
 }

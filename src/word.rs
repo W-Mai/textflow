@@ -133,6 +133,7 @@ fn get_char_width(ch: char, tab_width: usize) -> usize {
     };
 }
 
+#[allow(unused)]
 impl Word<'_> {
     pub fn new(text: &str, remaining_width: usize, tab_width: usize) -> Word {
         Word {

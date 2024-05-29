@@ -110,22 +110,28 @@ mod tests {
     #[test]
     fn test_line_1() {
         let text = "The quick brown fox jumps over a lazy dog.";
-
-        let n = 21;
+        let n = 15;
 
         let flow = Line::new(text, n, 4);
 
         for line in flow {
-            let mut display_buffer = String::new();
-            display_buffer += &text[line.position.start..line.position.end];
-            for _ in display_buffer.chars().count()..n - 1 {
+            let mut display_buffer = String::from(&text[line.position.start..line.position.end]);
+            let text_len = display_buffer.len();
+
+            // calc real width of the line: wide char is 2, others are 1
+            let full_width =
+                display_buffer
+                    .chars()
+                    .fold(0, |acc, ch| if ch.is_ascii() { acc + 1 } else { acc + 2 });
+
+            for _ in full_width..n {
                 display_buffer += " ";
             }
-            display_buffer += "|";
             println!(
-                "{} {:?}",
+                "{}| [{:3?}) len: {:3?}",
                 display_buffer,
-                line.position.start..line.position.end
+                line.position.start..line.position.end,
+                text_len
             );
         }
     }

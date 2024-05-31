@@ -7,7 +7,7 @@ mod word;
 struct TextFlowContext {}
 
 #[allow(dead_code)]
-struct TextFlow<'a> {
+pub struct TextFlow<'a> {
     text: &'a str,
     max_width: usize,
     line_height: usize,
@@ -21,7 +21,7 @@ struct TextFlow<'a> {
 }
 
 impl TextFlow<'_> {
-    fn new(text: &str, max_width: usize) -> TextFlow {
+    pub fn new(text: &str, max_width: usize) -> TextFlow {
         let mut flow = TextFlow {
             text,
             max_width,
@@ -44,20 +44,5 @@ impl Iterator for TextFlow<'_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.lines.next()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_1() {
-        let text = "Hello, world!";
-        let max_width = 10;
-        let mut flow = TextFlow::new(text, max_width);
-
-        let line = flow.next();
-        println!("{:#?}", line);
     }
 }

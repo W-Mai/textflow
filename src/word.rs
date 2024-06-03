@@ -5,8 +5,7 @@ use std::str::CharIndices;
 // Define an enum for Line Break Classes as specified in UAX #14 with detailed comments.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LineBreakClass {
-    // BK: Mandatory Break
-    MandatoryBreak,
+    MandatoryBreak, // BK: Mandatory Break
     // CR: Carriage Return
     CarriageReturn,
     // LF: Line Feed
@@ -168,40 +167,12 @@ fn is_cjk(ch: char) -> bool {
 }
 
 fn is_punctuation(ch: char) -> bool {
-    if ch == '.'
-        || ch == ','
-        || ch == ';'
-        || ch == ':'
-        || ch == '!'
-        || ch == '?'
-        || ch == '('
-        || ch == ')'
-        || ch == '['
-        || ch == ']'
-        || ch == '{'
-        || ch == '}'
-        || ch == '。'
-        || ch == '，'
-        || ch == '、'
-        || ch == '？'
-        || ch == '！'
-        || ch == '：'
-        || ch == '；'
-        || ch == '（'
-        || ch == '）'
-        || ch == '「'
-        || ch == '」'
-        || ch == '『'
-        || ch == '』'
-        || ch == '【'
-        || ch == '】'
-        || ch == '〔'
-        || ch == '〕'
-        || ch == '〈'
-        || ch == '〉'
-        || ch == '《'
-        || ch == '》'
-    {
+    let punc_list = vec![
+        '.', ',', ';', ':', '!', '?', '(', ')', '[', ']', '{', '}', '。', '，', '、', '？', '！',
+        '：', '；', '（', '）', '「', '」', '『', '』', '【', '】', '〔', '〕', '〈', '〉', '《',
+        '》',
+    ];
+    if punc_list.contains(&ch) {
         return true;
     }
     return false;

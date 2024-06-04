@@ -78,8 +78,8 @@ impl Iterator for Line<'_> {
                         || word_next.word_type == WordType::NEWLINE
                     {
                         word_iter.next();
-                    } else if word.word_type != WordType::PUNCTUATION
-                        && word_next.word_type == WordType::PUNCTUATION
+                    } else if word.word_type != WordType::CLOSE_PUNCTUATION
+                        && word_next.word_type == WordType::CLOSE_PUNCTUATION
                     {
                         end = word.position.start;
                         brk = word.position.start;

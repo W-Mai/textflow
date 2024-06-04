@@ -2,85 +2,15 @@ use std::iter::Peekable;
 use std::ops::Not;
 use std::str::CharIndices;
 
-// Define an enum for Line Break Classes as specified in UAX #14 with detailed comments.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LineBreakClass {
-    // Non-tailorable Line Breaking Classes
-    BK,  // Mandatory Break
-    CR,  // Carriage Return
-    LF,  // Line Feed
-    CM,  // Combining Mark
-    NL,  // Next Line
-    SG,  // Surrogate
-    WJ,  // Word Joiner
-    ZW,  // Zero Width Space
-    GL,  // Non-breaking (“Glue”)
-    SP,  // Space
-    ZWJ, // Zero Width Joiner
-
-    // Break Opportunities
-    B2, // Break Opportunity Before and After
-    BA, // Break After
-    BB, // Break Before
-    HY, // Hyphen
-    CB, // Contingent Break Opportunity
-
-    // Characters Prohibiting Certain Breaks
-    CL, // Close Punctuation
-    CP, // Close Parenthesis
-    EX, // Exclamation/Interrogation
-    IN, // Inseparable
-    NS, // Nonstarter
-    OP, // Open Punctuation
-    QU, // Quotation
-
-    // Numeric Context
-    IS, // Infix Numeric Separator
-    NU, // Numeric
-    PO, // Postfix Numeric
-    PR, // Prefix Numeric
-    SY, // Symbols Allowing Break After
-
-    // Other Characters
-    AI, // Ambiguous (Alphabetic or Ideographic)
-    AL, // Alphabetic
-    CJ, // Conditional Japanese Starter
-    EB, // Emoji Base
-    EM, // Emoji Modifier
-    H2, // Hangul LV Syllable
-    H3, // Hangul LVT Syllable
-    HL, // Hebrew Letter
-    ID, // Ideographic
-    JL, // Hangul L Jamo
-    JV, // Hangul V Jamo
-    JT, // Hangul T Jamo
-    RI, // Regional Indicator
-    SA, // Complex Context Dependent (South East Asian)
-    XX, // Unknown
-}
-
-impl From<char> for LineBreakClass {
-    fn from(value: char) -> Self {
-        match value {
-            '\n' => LineBreakClass::LF,
-            '\r' => LineBreakClass::CR,
-            ' ' | '\t' => LineBreakClass::SP,
-
-            '0'..='9' => LineBreakClass::NU,
-            '-' => LineBreakClass::HY,
-
-            _ => LineBreakClass::XX,
-        }
-    }
-}
-
+#[allow(non_camel_case_types)]
 #[derive(PartialEq, Debug, Clone)]
 pub enum WordType {
     LATIN,
     CJK,
     HYPHEN,
     NUMBER,
-    PUNCTUATION,
+    OPEN_PUNCTUATION,
+    CLOSE_PUNCTUATION,
     RETURN,
     NEWLINE,
     SPACE,
@@ -126,39 +56,32 @@ fn is_cjk(ch: char) -> bool {
     return false;
 }
 
-fn is_punctuation(ch: char) -> bool {
-    let punc_list = vec![
-        '.', ',', ';', ':', '!', '?', '(', ')', '[', ']', '{', '}', '。', '，', '、', '？', '！',
-        '：', '；', '（', '）', '「', '」', '『', '』', '【', '】', '〔', '〕', '〈', '〉', '《',
-        '》',
-    ];
-    if punc_list.contains(&ch) {
-        return true;
-    }
-    return false;
+fn is_open_punctuation(ch: char) -> bool {
+    ['(', '[', '{', '（', '「', '『', '【', '〔', '〈', '《'].contains(&ch)
+}
+
+fn is_close_punctuation(ch: char) -> bool {
+    [
+        '.', ',', ';', ':', '!', '?', ')', ']', '}', '。', '，', '、', '？', '！', '：', '；',
+        '）', '」', '』', '】', '〕', '〉', '》',
+    ]
+    .contains(&ch)
 }
 
 fn get_word_type(ch: char) -> WordType {
-    if is_latin(ch) {
-        return WordType::LATIN;
-    } else if is_cjk(ch) {
-        return WordType::CJK;
-    } else if ch == '-' {
-        return WordType::HYPHEN;
-    } else if ch >= '0' && ch <= '9' {
-        return WordType::NUMBER;
-    } else if is_punctuation(ch) {
-        return WordType::PUNCTUATION;
-    } else if ch == '\n' {
-        return WordType::NEWLINE;
-    } else if ch == '\r' {
-        return WordType::RETURN;
-    } else if ch == ' ' {
-        return WordType::SPACE;
-    } else if ch == '\t' {
-        return WordType::TAB;
+    match ch {
+        ch if is_latin(ch) => WordType::LATIN,
+        ch if is_cjk(ch) => WordType::CJK,
+        '-' => WordType::HYPHEN,
+        ch if ch >= '0' && ch <= '9' => WordType::NUMBER,
+        ch if is_open_punctuation(ch) => WordType::OPEN_PUNCTUATION,
+        ch if is_close_punctuation(ch) => WordType::CLOSE_PUNCTUATION,
+        '\n' => WordType::NEWLINE,
+        '\r' => WordType::RETURN,
+        ' ' => WordType::SPACE,
+        '\t' => WordType::TAB,
+        _ => WordType::UNKNOWN,
     }
-    return WordType::UNKNOWN;
 }
 
 fn get_char_width(ch: char, tab_width: usize) -> usize {
@@ -168,7 +91,9 @@ fn get_char_width(ch: char, tab_width: usize) -> usize {
         WordType::CJK => 2,
         WordType::HYPHEN => 1,
         WordType::NUMBER => 1,
-        WordType::PUNCTUATION => ch.is_ascii().not() as usize + 1,
+        WordType::CLOSE_PUNCTUATION | WordType::OPEN_PUNCTUATION => {
+            ch.is_ascii().not() as usize + 1
+        }
         WordType::RETURN => 0,
         WordType::NEWLINE => 0,
         WordType::SPACE => 1,
@@ -260,7 +185,7 @@ impl Iterator for Word<'_> {
                         break;
                     }
                 }
-                WordType::PUNCTUATION => {
+                WordType::OPEN_PUNCTUATION | WordType::CLOSE_PUNCTUATION => {
                     break;
                 }
                 WordType::RETURN => {
@@ -320,7 +245,7 @@ mod tests {
         assert_eq!(&text[word.position.start..word.position.end], "Hello");
 
         let word = flow.next().unwrap();
-        assert_eq!(word.word_type, WordType::PUNCTUATION);
+        assert_eq!(word.word_type, WordType::CLOSE_PUNCTUATION);
         assert_eq!(word.position.end, 6);
         assert_eq!(&text[word.position.start..word.position.end], ",");
 
@@ -335,7 +260,7 @@ mod tests {
         assert_eq!(&text[word.position.start..word.position.end], "world");
 
         let word = flow.next().unwrap();
-        assert_eq!(word.word_type, WordType::PUNCTUATION);
+        assert_eq!(word.word_type, WordType::CLOSE_PUNCTUATION);
         assert_eq!(word.position.end, 13);
         assert_eq!(word.position.brk, 10);
         assert_eq!(&text[word.position.start..word.position.end], "!");
@@ -431,7 +356,7 @@ mod tests {
         ];
 
         for punc in punc_list {
-            let lbc = LineBreakClass::from(punc);
+            let lbc = get_word_type(punc);
             println!("{:?}", lbc);
         }
     }

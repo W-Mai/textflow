@@ -5,111 +5,71 @@ use std::str::CharIndices;
 // Define an enum for Line Break Classes as specified in UAX #14 with detailed comments.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LineBreakClass {
-    MandatoryBreak, // BK: Mandatory Break
-    // CR: Carriage Return
-    CarriageReturn,
-    // LF: Line Feed
-    LineFeed,
-    // NL: Next Line
-    NextLine,
-    // CM: Combining Mark
-    CombiningMark,
-    // WJ: Word Joiner
-    WordJoiner,
-    // ZW: Zero Width Space
-    ZeroWidthSpace,
-    // GL: Non-breaking ("Glue")
-    NonBreaking,
-    // SP: Space
-    Space,
-    // ZWJ: Zero Width Joiner
-    ZeroWidthJoiner,
-    // B2: Break Opportunity Before and After
-    BreakOpportunityBeforeAndAfter,
-    // BA: Break After
-    BreakAfter,
-    // BB: Break Before
-    BreakBefore,
-    // CB: Contingent Break Opportunity
-    ContingentBreakOpportunity,
-    // CL: Close Punctuation
-    ClosePunctuation,
-    // CP: Close Parenthesis
-    CloseParenthesis,
-    // EX: Exclamation/Interrogation
-    ExclamationInterrogation,
-    // IN: Inseparable
-    Inseparable,
-    // HY: Hyphen
-    Hyphen,
-    // IS: Infix Numeric Separator
-    InfixNumericSeparator,
-    // NU: Numeric
-    Numeric,
-    // PO: Postfix Numeric
-    PostfixNumeric,
-    // PR: Prefix Numeric
-    PrefixNumeric,
-    // QU: Quotation
-    Quotation,
-    // RI: Regional Indicator
-    RegionalIndicator,
-    // SA: Complex Context Dependent (South East Asian)
-    ComplexContextDependent,
-    // AI: Ambiguous (Alphabetic or Ideographic)
-    Ambiguous,
-    // AL: Alphabetic
-    Alphabetic,
-    // CJ: Conditional Japanese Starter
-    ConditionalJapaneseStarter,
-    // EB: Emoji Base
-    EmojiBase,
-    // EM: Emoji Modifier
-    EmojiModifier,
-    // H2: Hangul LV Syllable
-    HangulLVSyllable,
-    // H3: Hangul LVT Syllable
-    HangulLVTSyllable,
-    // HL: Hebrew Letter
-    HebrewLetter,
-    // Unknown
-    Unknown,
+    // Non-tailorable Line Breaking Classes
+    BK,  // Mandatory Break
+    CR,  // Carriage Return
+    LF,  // Line Feed
+    CM,  // Combining Mark
+    NL,  // Next Line
+    SG,  // Surrogate
+    WJ,  // Word Joiner
+    ZW,  // Zero Width Space
+    GL,  // Non-breaking (“Glue”)
+    SP,  // Space
+    ZWJ, // Zero Width Joiner
+
+    // Break Opportunities
+    B2, // Break Opportunity Before and After
+    BA, // Break After
+    BB, // Break Before
+    HY, // Hyphen
+    CB, // Contingent Break Opportunity
+
+    // Characters Prohibiting Certain Breaks
+    CL, // Close Punctuation
+    CP, // Close Parenthesis
+    EX, // Exclamation/Interrogation
+    IN, // Inseparable
+    NS, // Nonstarter
+    OP, // Open Punctuation
+    QU, // Quotation
+
+    // Numeric Context
+    IS, // Infix Numeric Separator
+    NU, // Numeric
+    PO, // Postfix Numeric
+    PR, // Prefix Numeric
+    SY, // Symbols Allowing Break After
+
+    // Other Characters
+    AI, // Ambiguous (Alphabetic or Ideographic)
+    AL, // Alphabetic
+    CJ, // Conditional Japanese Starter
+    EB, // Emoji Base
+    EM, // Emoji Modifier
+    H2, // Hangul LV Syllable
+    H3, // Hangul LVT Syllable
+    HL, // Hebrew Letter
+    ID, // Ideographic
+    JL, // Hangul L Jamo
+    JV, // Hangul V Jamo
+    JT, // Hangul T Jamo
+    RI, // Regional Indicator
+    SA, // Complex Context Dependent (South East Asian)
+    XX, // Unknown
 }
 
 impl From<char> for LineBreakClass {
     fn from(value: char) -> Self {
         match value {
-            '\u{000B}' => LineBreakClass::MandatoryBreak, // BK: Mandatory Break
-            '\r' => LineBreakClass::CarriageReturn,       // CR: Carriage Return
-            '\n' => LineBreakClass::LineFeed,             // LF: Line Feed
-            '\u{0085}' => LineBreakClass::NextLine,       // NL: Next Line
-            '\u{0300}'..='\u{036F}' => LineBreakClass::CombiningMark, // CM: Combining Mark
-            '\u{2060}' => LineBreakClass::WordJoiner,     // WJ: Word Joiner
-            '\u{200B}' => LineBreakClass::ZeroWidthSpace, // ZW: Zero Width Space
-            '\u{00A0}' => LineBreakClass::NonBreaking,    // GL: Non-breaking ("Glue")
-            ' ' => LineBreakClass::Space,                 // SP: Space
-            '\u{200D}' => LineBreakClass::ZeroWidthJoiner, // ZWJ: Zero Width Joiner
-            '\t' | '\x0C' => LineBreakClass::BreakOpportunityBeforeAndAfter, // B2: Break Opportunity Before and After
-            '\u{2029}' => LineBreakClass::BreakAfter,                        // BA: Break After
-            '\u{2028}' => LineBreakClass::BreakBefore,                       // BB: Break Before
-            ')' | ']' | '}' | '\u{00BB}' | '\u{2019}' => LineBreakClass::ClosePunctuation, // CL: Close Punctuation
-            '\u{0021}' | '\u{003F}' => LineBreakClass::ExclamationInterrogation, // EX: Exclamation/Interrogation
-            c if c.is_alphabetic() => LineBreakClass::Alphabetic,                // AL: Alphabetic
-            '-' => LineBreakClass::Hyphen,                                       // HY: Hyphen
-            ',' | '.' => LineBreakClass::InfixNumericSeparator, // IS: Infix Numeric Separator
-            c if c.is_numeric() => LineBreakClass::Numeric,     // NU: Numeric
-            '%' | '\u{2030}' | '\u{2031}' => LineBreakClass::PostfixNumeric, // PO: Postfix Numeric
-            '$' | '\u{00A2}'..='\u{00A5}' | '\u{20A0}'..='\u{20B5}' => {
-                LineBreakClass::PrefixNumeric
-            } // PR: Prefix Numeric
-            '"' | '\'' | '\u{00AB}' | '\u{00BB}' | '\u{2018}'..='\u{201F}' => {
-                LineBreakClass::Quotation
-            } // QU: Quotation
-            '\u{1F1E6}'..='\u{1F1FF}' => LineBreakClass::RegionalIndicator, // RI: Regional Indicator
-            '\u{0E33}'..='\u{0E3A}' | '\u{0E40}'..='\u{0E44}' => {
-                LineBreakClass::ComplexContextDependent
-            } // SA: Complex Context Dependent (South East Asian)
-            _ => LineBreakClass::Unknown,
+            '\n' => LineBreakClass::LF,
+            '\r' => LineBreakClass::CR,
+            ' ' | '\t' => LineBreakClass::SP,
+
+            '0'..='9' => LineBreakClass::NU,
+            '-' => LineBreakClass::HY,
+
+            _ => LineBreakClass::XX,
         }
     }
 }
@@ -460,5 +420,19 @@ mod tests {
         assert_eq!(&text[word.position.start..word.position.end], " ");
 
         assert_eq!(flow.next(), None);
+    }
+
+    #[test]
+    fn test_5() {
+        let punc_list = vec![
+            '.', ',', ';', ':', '!', '?', '(', ')', '[', ']', '{', '}', '。', '，', '、', '？',
+            '！', '：', '；', '（', '）', '「', '」', '『', '』', '【', '】', '〔', '〕', '〈',
+            '〉', '《', '》',
+        ];
+
+        for punc in punc_list {
+            let lbc = LineBreakClass::from(punc);
+            println!("{:?}", lbc);
+        }
     }
 }

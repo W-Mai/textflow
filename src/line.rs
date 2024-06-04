@@ -1,4 +1,5 @@
 use crate::word::{Word, WordType};
+use peekmore::PeekMore;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LinePosition {
@@ -56,17 +57,30 @@ impl Iterator for Line<'_> {
             self.max_width,
             self.tab_width,
         )
-        .peekable();
+        .peekmore();
 
         let mut end;
         let mut brk;
 
         loop {
-            let word = word_iter.by_ref().peek()?.clone();
+            let word = word_iter.peek()?.clone();
+
+            if word.word_type == WordType::OPEN_PUNCTUATION {
+                word_iter.advance_cursor();
+                if let Some(word_next) = word_iter.peek() {
+                    if word_next.position.brk != usize::MAX
+                        && word_next.position.brk != word_next.position.end
+                    {
+                        end = word.position.start;
+                        brk = word.position.start;
+                        break;
+                    }
+                }
+            }
 
             word_iter.next();
 
-            let word_next = word_iter.by_ref().peek();
+            let word_next = word_iter.peek();
             if let Some(word_next) = word_next {
                 if word_next.position.brk != usize::MAX
                     && word_next.position.brk != word_next.position.end
@@ -110,6 +124,9 @@ mod tests {
 
         for line in flow {
             let mut display_buffer = String::from(&text[line.position.start..line.position.end]);
+            if display_buffer == "\n" {
+                continue;
+            }
             let text_len = display_buffer.len();
 
             // calc real width of the line: wide char is 2, others are 1
@@ -144,8 +161,8 @@ mod tests {
     #[test]
     fn test_line_3() {
         do_a_test(
-            "为了提供更好的服务，请您在使用前充分阅读《TextFlow 使用隐私政策》",
-            21,
+            "为了提供更好的服务和服务。\n请您在使用前充分阅读《TextFlow 使用隐私 Policy》",
+            25,
         );
     }
 }

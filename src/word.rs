@@ -68,24 +68,26 @@ fn is_close_punctuation(ch: char) -> bool {
     .contains(&ch)
 }
 
-fn get_word_type(ch: char) -> WordType {
-    match ch {
-        ch if is_latin(ch) => WordType::LATIN,
-        ch if is_cjk(ch) => WordType::CJK,
-        '-' => WordType::HYPHEN,
-        ch if ch >= '0' && ch <= '9' => WordType::NUMBER,
-        ch if is_open_punctuation(ch) => WordType::OPEN_PUNCTUATION,
-        ch if is_close_punctuation(ch) => WordType::CLOSE_PUNCTUATION,
-        '\n' => WordType::NEWLINE,
-        '\r' => WordType::RETURN,
-        ' ' => WordType::SPACE,
-        '\t' => WordType::TAB,
-        _ => WordType::UNKNOWN,
+impl From<char> for WordType {
+    fn from(ch: char) -> Self {
+        match ch {
+            ch if is_latin(ch) => WordType::LATIN,
+            ch if is_cjk(ch) => WordType::CJK,
+            '-' => WordType::HYPHEN,
+            ch if ch >= '0' && ch <= '9' => WordType::NUMBER,
+            ch if is_open_punctuation(ch) => WordType::OPEN_PUNCTUATION,
+            ch if is_close_punctuation(ch) => WordType::CLOSE_PUNCTUATION,
+            '\n' => WordType::NEWLINE,
+            '\r' => WordType::RETURN,
+            ' ' => WordType::SPACE,
+            '\t' => WordType::TAB,
+            _ => WordType::UNKNOWN,
+        }
     }
 }
 
 fn get_char_width(ch: char, tab_width: usize) -> usize {
-    let char_type = get_word_type(ch);
+    let char_type = WordType::from(ch);
     return match char_type {
         WordType::LATIN => 1,
         WordType::CJK => 2,
@@ -141,14 +143,14 @@ impl Iterator for Word<'_> {
             let char_width = get_char_width(ch, self.tab_width);
 
             if word_type == WordType::UNKNOWN {
-                word_type = get_word_type(ch);
+                word_type = WordType::from(ch);
             }
 
             self.char_indices.next();
 
             let char_next = self.char_indices.by_ref().peek().map_or(0 as char, |v| v.1);
             let char_width_next = get_char_width(char_next, self.tab_width);
-            let word_type_next = get_word_type(char_next);
+            let word_type_next = WordType::from(char_next);
 
             word_pos_end += char_len;
             word_width += char_width;
@@ -356,7 +358,7 @@ mod tests {
         ];
 
         for punc in punc_list {
-            let lbc = get_word_type(punc);
+            let lbc = WordType::from(punc);
             println!("{:?}", lbc);
         }
     }

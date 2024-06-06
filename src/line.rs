@@ -165,4 +165,9 @@ mod tests {
             25,
         );
     }
+
+    #[test]
+    fn test_line_4() {
+        do_a_test("《Loooooooooooooooong Text》", 20);
+    }
 }

@@ -61,6 +61,7 @@ impl Iterator for Line<'_> {
 
         let mut end;
         let mut brk;
+        let mut is_line_leading = true;
 
         loop {
             let word = word_iter.peek()?.clone();
@@ -71,8 +72,13 @@ impl Iterator for Line<'_> {
                     if word_next.position.brk != usize::MAX
                         && word_next.position.brk != word_next.position.end
                     {
-                        end = word.position.start;
-                        brk = word.position.start;
+                        if is_line_leading {
+                            end = word_next.position.end;
+                            brk = word_next.position.end;
+                        } else {
+                            end = word.position.start;
+                            brk = word.position.start;
+                        }
                         break;
                     }
                 }
@@ -106,6 +112,8 @@ impl Iterator for Line<'_> {
                 word_iter.next();
                 break;
             }
+
+            is_line_leading = false;
         }
 
         line_info.position.end = line_info.position.start + end;
@@ -155,7 +163,7 @@ mod tests {
 
     #[test]
     fn test_line_2() {
-        do_a_test("八百标兵奔北坡炮兵并排北边跑666中英文测试。The quick brown fox jumps over a lazy dog. abcdefghijklmn", 14);
+        do_a_test("八百标兵奔北坡炮兵并排北边跑666中英文测试。The quick brown fox jumps over a lazy dog. abcdefghijklmnopq rstuvwxyz", 14);
     }
 
     #[test]

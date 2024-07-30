@@ -23,8 +23,10 @@ pub struct Line<'a> {
     line_info_prev: Option<LineInfo>,
     max_width: usize,
     tab_width: usize,
+    long_break: bool,
 }
 
+#[allow(dead_code)]
 impl Line<'_> {
     pub fn new(text: &str, max_width: usize, tab_width: usize) -> Line {
         Line {
@@ -32,7 +34,23 @@ impl Line<'_> {
             line_info_prev: None,
             max_width,
             tab_width,
+            long_break: false,
         }
+    }
+
+    pub fn with_max_width(mut self, max_width: usize) -> Self {
+        self.max_width = max_width;
+        self
+    }
+
+    pub fn with_tab_width(mut self, tab_width: usize) -> Self {
+        self.tab_width = tab_width;
+        self
+    }
+
+    pub fn with_long_break(mut self, long_break: bool) -> Self {
+        self.long_break = long_break;
+        self
     }
 }
 
@@ -66,6 +84,18 @@ impl Iterator for Line<'_> {
         loop {
             let word = word_iter.peek()?.clone();
 
+            if is_line_leading
+                && self.long_break == true
+                && word.position.brk != usize::MAX
+                && word.position.brk != word.position.end
+                && !(word.word_type == WordType::RETURN || word.word_type == WordType::NEWLINE)
+            {
+                end = word.position.end;
+                brk = word.position.brk;
+                word_iter.next();
+                break;
+            }
+
             if word.word_type == WordType::OPEN_PUNCTUATION {
                 word_iter.advance_cursor();
                 if let Some(word_next) = word_iter.peek() {
@@ -73,12 +103,11 @@ impl Iterator for Line<'_> {
                         && word_next.position.brk != word_next.position.end
                     {
                         if is_line_leading {
-                            end = word_next.position.end;
-                            brk = word_next.position.end;
-                        } else {
+                            continue;
+                        }
+
                             end = word.position.start;
                             brk = word.position.start;
-                        }
                         break;
                     }
                 }
@@ -128,10 +157,10 @@ mod tests {
     use super::*;
 
     fn do_a_test(text: &str, n: usize) {
-        let flow = Line::new(text, n, 4);
+        let flow = Line::new(text, n, 4).with_long_break(true);
 
         for line in flow {
-            let mut display_buffer = String::from(&text[line.position.start..line.position.end]);
+            let mut display_buffer = String::from(&text[line.position.start..line.position.brk]);
             if display_buffer == "\n" {
                 continue;
             }

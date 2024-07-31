@@ -106,8 +106,8 @@ impl Iterator for Line<'_> {
                             continue;
                         }
 
-                            end = word.position.start;
-                            brk = word.position.start;
+                        end = word.position.start;
+                        brk = word.position.start;
                         break;
                     }
                 }
@@ -158,7 +158,7 @@ mod tests {
 
     fn do_a_test(text: &str, n: usize) {
         let flow = Line::new(text, n, 4).with_long_break(true);
-
+        
         for line in flow {
             let mut display_buffer = String::from(&text[line.position.start..line.position.brk]);
             if display_buffer == "\n" {
@@ -198,7 +198,7 @@ mod tests {
     #[test]
     fn test_line_3() {
         do_a_test(
-            "为了提供更好的服务和服务。\n请您在使用前充分阅读《TextFlow 使用隐私 Policy》",
+            "为了提供更好的服务和服务。\n请您在使用前充分阅读《TextFlowwwwwwwwwwwwwwwwww 使用隐私 Policy》",
             25,
         );
     }

@@ -87,7 +87,6 @@ impl Iterator for Line<'_> {
             if is_line_leading
                 && self.long_break == true
                 && word.position.brk != usize::MAX
-                && word.position.brk != word.position.end
                 && !(word.word_type == WordType::RETURN || word.word_type == WordType::NEWLINE)
             {
                 end = word.position.end;
@@ -95,8 +94,8 @@ impl Iterator for Line<'_> {
                 word_iter.next();
                 break;
             }
-            
-            if word.word_type == WordType::NEWLINE || word.word_type == WordType::RETURN { 
+
+            if word.word_type == WordType::NEWLINE || word.word_type == WordType::RETURN {
                 end = word.position.end;
                 brk = word.position.end;
                 word_iter.next();
@@ -137,7 +136,8 @@ impl Iterator for Line<'_> {
                         end += 1;
                         brk += 1;
                     } else if word.word_type != WordType::CLOSE_PUNCTUATION
-                        && word_next.word_type == WordType::CLOSE_PUNCTUATION
+                        && (word_next.word_type == WordType::CLOSE_PUNCTUATION
+                            || word_next.word_type == WordType::SPACE)
                     {
                         end = word.position.start;
                         brk = word.position.start;
@@ -169,7 +169,9 @@ mod tests {
         let flow = Line::new(text, n, 4).with_long_break(true);
 
         for line in flow {
-            let mut display_buffer = text[line.position.start..line.position.brk].trim_end_matches("\n").to_owned();
+            let mut display_buffer = text[line.position.start..line.position.brk]
+                .trim_end_matches("\n")
+                .to_owned();
             let text_len = display_buffer.len();
 
             // calc real width of the line: wide char is 2, others are 1
@@ -212,5 +214,10 @@ mod tests {
     #[test]
     fn test_line_4() {
         do_a_test("《Loooooooooooooooong Text》", 20);
+    }
+
+    #[test]
+    fn test_line_5() {
+        do_a_test("Looooooooooooooooong Text》", 10);
     }
 }

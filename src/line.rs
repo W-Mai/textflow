@@ -127,6 +127,8 @@ impl Iterator for Line<'_> {
                         || word_next.word_type == WordType::NEWLINE
                     {
                         word_iter.next();
+                        end += 1;
+                        brk += 1;
                     } else if word.word_type != WordType::CLOSE_PUNCTUATION
                         && word_next.word_type == WordType::CLOSE_PUNCTUATION
                     {
@@ -158,7 +160,7 @@ mod tests {
 
     fn do_a_test(text: &str, n: usize) {
         let flow = Line::new(text, n, 4).with_long_break(true);
-        
+
         for line in flow {
             let mut display_buffer = String::from(&text[line.position.start..line.position.brk]);
             if display_buffer == "\n" {

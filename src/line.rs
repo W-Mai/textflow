@@ -95,6 +95,13 @@ impl Iterator for Line<'_> {
                 word_iter.next();
                 break;
             }
+            
+            if word.word_type == WordType::NEWLINE || word.word_type == WordType::RETURN { 
+                end = word.position.end;
+                brk = word.position.end;
+                word_iter.next();
+                break;
+            }
 
             if word.word_type == WordType::OPEN_PUNCTUATION {
                 word_iter.advance_cursor();
@@ -162,10 +169,7 @@ mod tests {
         let flow = Line::new(text, n, 4).with_long_break(true);
 
         for line in flow {
-            let mut display_buffer = String::from(&text[line.position.start..line.position.brk]);
-            if display_buffer == "\n" {
-                continue;
-            }
+            let mut display_buffer = text[line.position.start..line.position.brk].trim_end_matches("\n").to_owned();
             let text_len = display_buffer.len();
 
             // calc real width of the line: wide char is 2, others are 1

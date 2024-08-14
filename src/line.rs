@@ -80,9 +80,13 @@ impl Iterator for Line<'_> {
         let mut end;
         let mut brk;
         let mut is_line_leading = true;
+        let mut real_width = 0;
+        let mut ideal_width = 0;
 
         loop {
             let word = word_iter.peek()?.clone();
+            real_width += word.real_width;
+            ideal_width += word.ideal_width;
 
             if is_line_leading
                 && self.long_break == true
@@ -114,6 +118,9 @@ impl Iterator for Line<'_> {
 
                         end = word.position.start;
                         brk = word.position.start;
+
+                        real_width -= word.real_width;
+                        ideal_width -= word.ideal_width;
                         break;
                     }
                 }
@@ -141,6 +148,9 @@ impl Iterator for Line<'_> {
                     {
                         end = word.position.start;
                         brk = word.position.start;
+
+                        real_width -= word.real_width;
+                        ideal_width -= word.ideal_width;
                     }
                     break;
                 }
@@ -156,6 +166,8 @@ impl Iterator for Line<'_> {
 
         line_info.position.end = line_info.position.start + end;
         line_info.position.brk = line_info.position.start + brk;
+        line_info.real_width = real_width;
+        line_info.ideal_width = ideal_width;
         self.line_info_prev = Some(line_info.clone());
         Some(line_info)
     }
@@ -218,6 +230,6 @@ mod tests {
 
     #[test]
     fn test_line_5() {
-        do_a_test("Looooooooooooooooong Text》", 10);
+        do_a_test("、Text》〉》〉", 10);
     }
 }

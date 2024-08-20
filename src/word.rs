@@ -190,8 +190,19 @@ impl Iterator for Word<'_> {
                         break;
                     }
                 }
-                WordType::OPEN_PUNCTUATION | WordType::CLOSE_PUNCTUATION => {
-                    break;
+                WordType::OPEN_PUNCTUATION => {
+                    if word_type_next == WordType::OPEN_PUNCTUATION {
+                        continue;
+                    } else {
+                        break;
+                    }
+                }
+                WordType::CLOSE_PUNCTUATION => {
+                    if word_type_next == WordType::CLOSE_PUNCTUATION {
+                        continue;
+                    } else {
+                        break;
+                    }
                 }
                 WordType::RETURN => {
                     break;
@@ -364,5 +375,17 @@ mod tests {
             let lbc = WordType::from(punc);
             println!("{:?}", lbc);
         }
+    }
+
+    #[test]
+    fn test_6() {
+        let text = ">》〉".to_string();
+        let mut flow = Word::new(&text, 4, 4);
+
+        let word = flow.next().unwrap();
+        assert_eq!(word.word_type, WordType::CLOSE_PUNCTUATION);
+        assert_eq!(word.position.end, 7);
+        assert_eq!(word.position.brk, 4);
+        assert_eq!(&text[word.position.start..word.position.brk], ">》");
     }
 }

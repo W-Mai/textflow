@@ -146,8 +146,13 @@ impl Iterator for Line<'_> {
                         && (word_next.word_type == WordType::CLOSE_PUNCTUATION
                             || word_next.word_type == WordType::SPACE)
                     {
-                        end = word.position.start;
-                        brk = word.position.start;
+                        if is_line_leading {
+                            end = word_next.position.end;
+                            brk = word_next.position.brk;
+                        } else {
+                            end = word.position.start;
+                            brk = word.position.start;
+                        }
 
                         real_width -= word.real_width;
                         ideal_width -= word.ideal_width;
@@ -230,6 +235,6 @@ mod tests {
 
     #[test]
     fn test_line_5() {
-        do_a_test("、Text》〉》〉", 10);
+        do_a_test("This is a Text》〉>?!", 16);
     }
 }

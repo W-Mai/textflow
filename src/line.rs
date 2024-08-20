@@ -80,6 +80,7 @@ impl Iterator for Line<'_> {
         let mut end;
         let mut brk;
         let mut is_line_leading = true;
+        let mut is_word_breakable = false;
         let mut real_width = 0;
         let mut ideal_width = 0;
 
@@ -107,6 +108,7 @@ impl Iterator for Line<'_> {
             }
 
             if word.word_type == WordType::OPEN_PUNCTUATION {
+                is_word_breakable = true;
                 word_iter.advance_cursor();
                 if let Some(word_next) = word_iter.peek() {
                     if word_next.position.brk != usize::MAX
@@ -146,7 +148,7 @@ impl Iterator for Line<'_> {
                         && (word_next.word_type == WordType::CLOSE_PUNCTUATION
                             || word_next.word_type == WordType::SPACE)
                     {
-                        if is_line_leading {
+                        if is_line_leading || is_word_breakable {
                             end = word_next.position.end;
                             brk = word_next.position.brk;
                         } else {
@@ -158,6 +160,11 @@ impl Iterator for Line<'_> {
                         ideal_width -= word.ideal_width;
                     }
                     break;
+                } else if word.word_type == WordType::CJK
+                    || word.word_type == WordType::LATIN
+                    || word.word_type == WordType::NUMBER
+                {
+                    is_word_breakable = false;
                 }
             } else {
                 end = word.position.end;
@@ -236,5 +243,9 @@ mod tests {
     #[test]
     fn test_line_5() {
         do_a_test("This is a Text》〉>?!", 16);
+        do_a_test("<〈《Teext a>>>", 12);
+        do_a_test("<〈《Tee<ext><>>", 12);
+        do_a_test("<〈《Tee<eext><>>", 12);
+        do_a_test("<〈<<《你》>", 10);
     }
 }

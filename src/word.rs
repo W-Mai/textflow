@@ -43,17 +43,11 @@ pub struct Word<'a> {
 }
 
 fn is_latin(ch: char) -> bool {
-    if ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' {
-        return true;
-    }
-    return false;
+    ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z'
 }
 
 fn is_cjk(ch: char) -> bool {
-    if ch >= '\u{4e00}' && ch <= '\u{9fff}' {
-        return true;
-    }
-    return false;
+    ch >= '\u{4e00}' && ch <= '\u{9fff}'
 }
 
 fn is_open_punctuation(ch: char) -> bool {
@@ -123,7 +117,7 @@ impl Word<'_> {
     }
 
     pub fn get_remaining_width(&self) -> usize {
-        return self.remaining_width;
+        self.remaining_width
     }
 }
 
@@ -242,7 +236,7 @@ impl Iterator for Word<'_> {
             ideal_width: word_width,
         };
         self.word_info_prev = Some(info.clone());
-        return Some(info);
+        Some(info)
     }
 }
 

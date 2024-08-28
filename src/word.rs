@@ -91,7 +91,7 @@ impl From<char> for WordType {
 
 fn get_char_width(ch: char, tab_width: usize) -> usize {
     let char_type = WordType::from(ch);
-    return match char_type {
+    match char_type {
         WordType::LATIN => 1,
         WordType::CJK => 2,
         WordType::HYPHEN => 1,
@@ -104,7 +104,7 @@ fn get_char_width(ch: char, tab_width: usize) -> usize {
         WordType::SPACE => 1,
         WordType::TAB => tab_width,
         WordType::UNKNOWN => 0,
-    };
+    }
 }
 
 #[allow(unused)]

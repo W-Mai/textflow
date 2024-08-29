@@ -133,8 +133,20 @@ impl Iterator for Word<'_> {
         let mut word_width = 0;
         let mut brk_pos = word_info_prev_ref.map_or(usize::MAX, |v| v.position.brk);
         let mut real_width = 0;
+        let mut expected_punctuation_char_indices = self.char_indices.clone();
+        let mut punctuation_count = 0u32;
+        let mut open_punctuation_offset = 0;
 
         loop {
+            if punctuation_count >= 2 {
+                if word_type == WordType::CLOSE_PUNCTUATION {
+                    break;
+                } else if word_type == WordType::OPEN_PUNCTUATION {
+                    let ch = expected_punctuation_char_indices.next()?.1;
+                    println!("{}", ch);
+                    open_punctuation_offset += ch.len_utf8();
+                }
+            }
             let ch = self.char_indices.by_ref().peek()?.1;
             let char_len = ch.len_utf8();
             let char_width = get_char_width(ch, self.tab_width);
@@ -186,13 +198,18 @@ impl Iterator for Word<'_> {
                 }
                 WordType::OPEN_PUNCTUATION => {
                     if word_type_next == WordType::OPEN_PUNCTUATION {
+                        punctuation_count += 1;
                         continue;
                     } else {
+                        if punctuation_count >= 2 {
+                            word_pos_end = start + open_punctuation_offset;
+                        }
                         break;
                     }
                 }
                 WordType::CLOSE_PUNCTUATION => {
                     if word_type_next == WordType::CLOSE_PUNCTUATION {
+                        punctuation_count += 1;
                         continue;
                     } else {
                         break;

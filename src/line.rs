@@ -247,5 +247,6 @@ mod tests {
         do_a_test("<〈《Tee<ext><>>", 12);
         do_a_test("<〈《Tee<eext><>>", 12);
         do_a_test("<〈<<《你》>", 10);
+        do_a_test("<〈<<《Looooong", 14);
     }
 }

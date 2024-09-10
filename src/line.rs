@@ -107,7 +107,8 @@ impl Iterator for Line<'_> {
                 break;
             }
 
-            if word.word_type == WordType::OPEN_PUNCTUATION {
+            if word.word_type == WordType::OPEN_PUNCTUATION || word.word_type == WordType::QUOTATION
+            {
                 is_word_breakable = true;
                 word_iter.advance_cursor();
                 if let Some(word_next) = word_iter.peek() {
@@ -144,8 +145,10 @@ impl Iterator for Line<'_> {
                         word_iter.next();
                         end += 1;
                         brk += 1;
-                    } else if word.word_type != WordType::CLOSE_PUNCTUATION
+                    } else if (word.word_type != WordType::CLOSE_PUNCTUATION
+                        || word.word_type != WordType::QUOTATION)
                         && (word_next.word_type == WordType::CLOSE_PUNCTUATION
+                            || word_next.word_type == WordType::QUOTATION
                             || word_next.word_type == WordType::SPACE)
                     {
                         if is_line_leading || is_word_breakable {
@@ -248,5 +251,9 @@ mod tests {
         do_a_test("<〈《Tee<eext><>>", 12);
         do_a_test("<〈<<《你》>", 10);
         do_a_test("<〈<<《Loooooo｜ong>>", 14);
+        do_a_test("this is aaaa \"text word\" test", 15);
+        do_a_test("this is a \"text word\" test", 15);
+        do_a_test("this is a <text> test", 15);
+        do_a_test("this is a text test", 15);
     }
 }

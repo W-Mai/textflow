@@ -15,6 +15,7 @@ pub enum WordType {
     NEWLINE,
     SPACE,
     TAB,
+    QUOTATION,
     UNKNOWN,
 }
 
@@ -66,6 +67,24 @@ fn is_close_punctuation(ch: char) -> bool {
     .contains(&ch)
 }
 
+fn is_quotation(ch: char) -> bool {
+    [
+        0x22,   // '"'
+        0x27,   // '''
+        0x275B, // '❛'
+        0x275C, // '❜'
+        0x275D, // '❝'
+        0x275E, // '❞'
+        0x2E00, // '⸀'
+        0x2E01, // '⸁'
+        0x2E06, // '⸆'
+        0x2E07, // '⸇'
+        0x2E08, // '⸈'
+        0x2E0B, // '⸋'
+    ]
+    .contains(&(ch as u32))
+}
+
 impl From<char> for WordType {
     fn from(ch: char) -> Self {
         match ch {
@@ -79,6 +98,7 @@ impl From<char> for WordType {
             '\r' => WordType::RETURN,
             ' ' => WordType::SPACE,
             '\t' => WordType::TAB,
+            ch if is_quotation(ch) => WordType::QUOTATION,
             _ => WordType::UNKNOWN,
         }
     }
@@ -99,6 +119,7 @@ fn get_char_width(ch: char, tab_width: usize) -> usize {
         WordType::SPACE => 1,
         WordType::TAB => tab_width,
         WordType::UNKNOWN => 0,
+        _ => ch.is_ascii().not() as usize + 1,
     }
 }
 
@@ -210,6 +231,12 @@ impl Iterator for Word<'_> {
                     break;
                 }
                 WordType::TAB => {
+                    break;
+                }
+                WordType::QUOTATION => {
+                    if word_type_next == WordType::QUOTATION {
+                        continue;
+                    }
                     break;
                 }
                 WordType::UNKNOWN => {

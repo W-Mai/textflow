@@ -146,7 +146,7 @@ impl Iterator for Line<'_> {
                         end += 1;
                         brk += 1;
                     } else if (word.word_type != WordType::CLOSE_PUNCTUATION
-                        || word.word_type != WordType::QUOTATION)
+                        && word.word_type != WordType::QUOTATION)
                         && (word_next.word_type == WordType::CLOSE_PUNCTUATION
                             || word_next.word_type == WordType::QUOTATION
                             || word_next.word_type == WordType::SPACE)

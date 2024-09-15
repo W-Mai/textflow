@@ -149,6 +149,7 @@ impl Iterator for Line<'_> {
                         && word.word_type != WordType::QUOTATION)
                         && (word_next.word_type == WordType::CLOSE_PUNCTUATION
                             || word_next.word_type == WordType::QUOTATION
+                            || word_next.word_type == WordType::HYPHEN
                             || word_next.word_type == WordType::SPACE)
                     {
                         if is_line_leading || is_word_breakable {
@@ -254,6 +255,6 @@ mod tests {
         do_a_test("this is aaaa \"text word\" test", 15);
         do_a_test("this is a \"text word\" test", 15);
         do_a_test("this is a <text> test", 15);
-        do_a_test("this is a text test", 15);
+        do_a_test("this is a text-test", 15);
     }
 }

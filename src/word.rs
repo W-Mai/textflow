@@ -193,7 +193,7 @@ impl Iterator for Word<'_> {
                     break;
                 }
                 WordType::HYPHEN => {
-                    if word_type_next == WordType::LATIN || word_type_next == WordType::NUMBER {
+                    if word_type_next == WordType::HYPHEN {
                         continue;
                     } else {
                         break;

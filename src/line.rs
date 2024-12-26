@@ -1,4 +1,4 @@
-use crate::word::{Word, WordType};
+use crate::word::{Word, WordInfo, WordType};
 use peekmore::PeekMore;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -80,7 +80,7 @@ impl Iterator for Line<'_> {
         let mut end;
         let mut brk;
         let mut is_line_leading = true;
-        let mut is_word_breakable = false;
+        let mut unresolved_op_qu: Option<WordInfo> = None;
         let mut real_width = 0;
         let mut ideal_width = 0;
 
@@ -109,7 +109,7 @@ impl Iterator for Line<'_> {
 
             if word.word_type == WordType::OPEN_PUNCTUATION || word.word_type == WordType::QUOTATION
             {
-                is_word_breakable = true;
+                unresolved_op_qu = Some(word.clone());
                 word_iter.advance_cursor();
                 if let Some(word_next) = word_iter.peek() {
                     if word_next.position.brk != usize::MAX
@@ -133,11 +133,21 @@ impl Iterator for Line<'_> {
 
             let word_next = word_iter.peek();
             if let Some(word_next) = word_next {
-                if word_next.position.brk != usize::MAX
-                    && word_next.position.brk != word_next.position.end
-                {
+                if word_next.position.brk != usize::MAX {
                     end = word.position.end;
                     brk = word.position.end;
+
+                    if word_next.position.brk == word_next.position.end {
+                        if word_next.word_type == WordType::CJK
+                            || word_next.word_type == WordType::LATIN
+                        {
+                            continue;
+                        } else if word_next.position.end == word_next.position.start + 1 {
+                            end = word_next.position.end;
+                            brk = word_next.position.brk;
+                            break;
+                        }
+                    }
 
                     if word_next.word_type == WordType::RETURN
                         || word_next.word_type == WordType::NEWLINE
@@ -145,19 +155,24 @@ impl Iterator for Line<'_> {
                         word_iter.next();
                         end += 1;
                         brk += 1;
-                    } else if (word.word_type != WordType::CLOSE_PUNCTUATION
-                        && word.word_type != WordType::QUOTATION)
+                    } else if !(word.word_type == WordType::CLOSE_PUNCTUATION
+                        || word.word_type == WordType::QUOTATION)
                         && (word_next.word_type == WordType::CLOSE_PUNCTUATION
                             || word_next.word_type == WordType::QUOTATION
                             || word_next.word_type == WordType::HYPHEN
                             || word_next.word_type == WordType::SPACE)
                     {
-                        if is_line_leading || is_word_breakable {
+                        if is_line_leading {
                             end = word_next.position.end;
                             brk = word_next.position.brk;
                         } else {
-                            end = word.position.start;
-                            brk = word.position.start;
+                            if let Some(op_qu) = unresolved_op_qu {
+                                end = op_qu.position.start;
+                                brk = op_qu.position.start;
+                            } else {
+                                end = word.position.start;
+                                brk = word.position.start;
+                            }
                         }
 
                         real_width -= word.real_width;
@@ -168,7 +183,7 @@ impl Iterator for Line<'_> {
                     || word.word_type == WordType::LATIN
                     || word.word_type == WordType::NUMBER
                 {
-                    is_word_breakable = false;
+                    unresolved_op_qu = None;
                 }
             } else {
                 end = word.position.end;
@@ -177,7 +192,9 @@ impl Iterator for Line<'_> {
                 break;
             }
 
-            is_line_leading = false;
+            if unresolved_op_qu.is_none() {
+                is_line_leading = false;
+            }
         }
 
         line_info.position.end = line_info.position.start + end;
@@ -257,5 +274,12 @@ mod tests {
         do_a_test("this is a <text> test", 15);
         do_a_test("this is a text-test", 15);
         do_a_test("实时操作系统 Nuttx》。", 20);
+    }
+
+    #[test]
+    fn test_line_6() {
+        for i in 1..=15 {
+            do_a_test("an \"apple\" tree", i);
+        }
     }
 }

@@ -96,14 +96,12 @@ impl Iterator for Line<'_> {
             {
                 end = word.position.end;
                 brk = word.position.brk;
-                word_iter.next();
                 break;
             }
 
             if word.word_type == WordType::NEWLINE || word.word_type == WordType::RETURN {
                 end = word.position.end;
                 brk = word.position.end;
-                word_iter.next();
                 break;
             }
 
@@ -152,8 +150,6 @@ impl Iterator for Line<'_> {
                     if word_next.word_type == WordType::RETURN
                         || word_next.word_type == WordType::NEWLINE
                     {
-                        word_iter.next();
-                        end += 1;
                         brk += 1;
                     } else if !(word.word_type == WordType::CLOSE_PUNCTUATION
                         || word.word_type == WordType::QUOTATION)
@@ -188,12 +184,25 @@ impl Iterator for Line<'_> {
             } else {
                 end = word.position.end;
                 brk = word.position.end;
-                word_iter.next();
                 break;
             }
 
             if unresolved_op_qu.is_none() {
                 is_line_leading = false;
+            }
+        }
+
+        word_iter.next();
+
+        if end == brk {
+            while let Some(word_next) = word_iter.peek() {
+                if word_next.word_type == WordType::SPACE {
+                    let space_len = word_next.position.end - word_next.position.start;
+                    brk += space_len;
+                    word_iter.next();
+                } else {
+                    break;
+                }
             }
         }
 
@@ -214,7 +223,8 @@ mod tests {
         let flow = Line::new(text, n, 4).with_long_break(true);
 
         for line in flow {
-            let mut display_buffer = text[line.position.start..line.position.brk]
+            let mut display_buffer = text
+                [line.position.start..line.position.brk.min(line.position.end)]
                 .trim_end_matches("\n")
                 .to_owned();
             let text_len = display_buffer.len();
@@ -281,5 +291,18 @@ mod tests {
         for i in 1..=15 {
             do_a_test("an \"apple\" tree", i);
         }
+    }
+
+    #[test]
+    fn test_line_7() {
+        do_a_test("abc,    bcd, efg  bc", 5);
+        do_a_test("abc,\n    bcd, efg  bc", 5);
+
+        do_a_test("anyone can be able to", 13);
+    }
+
+    #[test]
+    fn test_line_8() {
+        do_a_test("a book named 《<《「Wow》>」", 27);
     }
 }

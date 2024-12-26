@@ -256,5 +256,6 @@ mod tests {
         do_a_test("this is a \"text word\" test", 15);
         do_a_test("this is a <text> test", 15);
         do_a_test("this is a text-test", 15);
+        do_a_test("实时操作系统 Nuttx》。", 20);
     }
 }

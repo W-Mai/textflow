@@ -140,11 +140,18 @@ impl Iterator for Line<'_> {
                     if word_next.position.brk == word_next.position.end {
                         if word_next.word_type == WordType::CJK
                             || word_next.word_type == WordType::LATIN
+                            || word_next.word_type == WordType::NUMBER
                         {
                             continue;
-                        } else if word_next.position.end == word_next.position.start + 1 {
+                        } else if word_next.word_type == WordType::SPACE
+                            || word_next.word_type == WordType::CLOSE_PUNCTUATION
+                            || word_next.word_type == WordType::QUOTATION
+                            || word_next.word_type == WordType::HYPHEN
+                        {
                             end = word_next.position.end;
                             brk = word_next.position.brk;
+                            real_width += word_next.real_width;
+                            ideal_width += word_next.ideal_width;
                             break;
                         }
                     }

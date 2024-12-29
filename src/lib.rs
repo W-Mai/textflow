@@ -33,7 +33,7 @@ impl TextFlow<'_> {
             lines: Line::new("", 0, 0),
         };
 
-        flow.lines = Line::new(flow.text, flow.max_width, flow.tab_width);
+        flow.lines = Line::new(flow.text, flow.max_width, flow.tab_width).with_long_break(true);
 
         flow
     }

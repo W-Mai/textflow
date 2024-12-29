@@ -17,6 +17,12 @@ pub struct LineInfo {
     pub ideal_width: usize,
 }
 
+impl LineInfo {
+    pub fn slices<'a>(&self, string: &'a str) -> &'a str {
+        &string[self.position.start..self.position.brk.min(self.position.end)]
+    }
+}
+
 pub struct Line<'a> {
     text: &'a str,
 

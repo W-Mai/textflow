@@ -83,6 +83,7 @@ impl Iterator for Line<'_> {
         let mut unresolved_op_qu: Option<WordInfo> = None;
         let mut real_width = 0;
         let mut ideal_width = 0;
+        let mut should_take_new_one = false;
 
         loop {
             let word = word_iter.peek()?.clone();
@@ -96,12 +97,14 @@ impl Iterator for Line<'_> {
             {
                 end = word.position.end;
                 brk = word.position.brk;
+                should_take_new_one = true;
                 break;
             }
 
             if word.word_type == WordType::NEWLINE || word.word_type == WordType::RETURN {
                 end = word.position.end;
                 brk = word.position.end;
+                should_take_new_one = true;
                 break;
             }
 
@@ -146,10 +149,14 @@ impl Iterator for Line<'_> {
                             || word_next.word_type == WordType::QUOTATION
                             || word_next.word_type == WordType::HYPHEN
                         {
+                            if unresolved_op_qu.is_none() {
+                                continue;
+                            }
                             end = word_next.position.end;
                             brk = word_next.position.brk;
                             real_width += word_next.real_width;
                             ideal_width += word_next.ideal_width;
+                            should_take_new_one = true;
                             break;
                         }
                     }
@@ -162,8 +169,7 @@ impl Iterator for Line<'_> {
                         || word.word_type == WordType::QUOTATION)
                         && (word_next.word_type == WordType::CLOSE_PUNCTUATION
                             || word_next.word_type == WordType::QUOTATION
-                            || word_next.word_type == WordType::HYPHEN
-                            || word_next.word_type == WordType::SPACE)
+                            || word_next.word_type == WordType::HYPHEN)
                     {
                         if is_line_leading {
                             end = word_next.position.end;
@@ -199,7 +205,9 @@ impl Iterator for Line<'_> {
             }
         }
 
-        word_iter.next();
+        if should_take_new_one {
+            word_iter.next();
+        }
 
         if end == brk {
             while let Some(word_next) = word_iter.peek() {
@@ -304,12 +312,22 @@ mod tests {
     fn test_line_7() {
         do_a_test("abc,    bcd, efg  bc", 5);
         do_a_test("abc,\n    bcd, efg  bc", 5);
-
+        do_a_test("an    apple         \"is\" a fruit", 1);
         do_a_test("anyone can be able to", 13);
     }
 
     #[test]
     fn test_line_8() {
         do_a_test("a book named 《<《「Wow》>」", 27);
+    }
+
+    #[test]
+    fn test_line_9() {
+        do_a_test("b  \n\n     a", 2);
+    }
+
+    #[test]
+    fn test_line_10() {
+        do_a_test("\"abc     aa", 2);
     }
 }

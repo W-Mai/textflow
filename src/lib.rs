@@ -3,6 +3,8 @@ use crate::line::{Line, LineInfo};
 mod line;
 mod word;
 
+pub mod tests;
+
 #[allow(dead_code)]
 struct TextFlowContext {}
 

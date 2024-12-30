@@ -31,12 +31,7 @@ mod testcase_suit_1 {
 
     #[test]
     fn test_3() {
-        let text = "Hello, world!";
-        let max_width = 10;
-        let flow = TextFlow::new(text, max_width);
-        let target_strings = ["Hello, ", "world!"];
-        for (i, line) in flow.enumerate() {
-            assert_eq!(line.slices(text), target_strings[i], "line {}", i);
-        }
+        assert_flow!("Hello, world!", ["Hello, ", "world!"], 10);
+        assert_flow!("Hello, world!", ["Hel", "lo,", "wor", "ld!"], 3);
     }
 }

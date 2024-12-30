@@ -5,3 +5,21 @@ macro_rules! assert_line {
         assert_eq!(res, $expected);
     }};
 }
+
+#[macro_export]
+macro_rules! assert_flow {
+    ($text:expr, $expected:expr, $max_width:expr) => {{
+        let text = $text;
+        let target_texts = $expected;
+        let max_width = $max_width;
+        let flow = TextFlow::new(text, max_width);
+        for (i, line) in flow.enumerate() {
+            assert_eq!(
+                line.slices(text),
+                target_texts[i],
+                "assert failed in line {}",
+                i
+            );
+        }
+    }};
+}

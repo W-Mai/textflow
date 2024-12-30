@@ -8,9 +8,13 @@ macro_rules! assert_line {
 
 #[macro_export]
 macro_rules! assert_flow {
-    ($text:expr, $expected:expr, $max_width:expr) => {{
+    ($text:expr => $max_width:expr => $($expected:literal) +) => {{
         let text = $text;
-        let target_texts = $expected;
+        let target_texts = &[
+            $(
+                $expected
+            ),+
+        ];
         let max_width = $max_width;
         let flow = TextFlow::new(text, max_width);
         for (i, line) in flow.enumerate() {

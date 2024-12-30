@@ -172,4 +172,15 @@ mod testcase_suit_1 {
             "Nuttx》。"
         );
     }
+
+    #[test]
+    fn test_17() {
+        assert_flow!(
+            "The quick brown fox jumps over a lazy dog."
+            => 15 =>
+            "The quick brown"
+            "fox jumps over "
+            "a lazy dog."
+        );
+    }
 }

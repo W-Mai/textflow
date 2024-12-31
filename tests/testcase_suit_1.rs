@@ -183,4 +183,91 @@ mod testcase_suit_1 {
             "a lazy dog."
         );
     }
+
+    #[test]
+    fn test_18() {
+        assert_flow!(
+            "八百标兵奔北坡炮兵并排北边跑666中英文测试。The quick brown fox jumps over a lazy dog. abcdefghijklmnopq rstuvwxyz"
+            => 14 =>
+            "八百标兵奔北坡"
+            "炮兵并排北边跑"
+            "666中英文测"
+            "试。The quick "
+            "brown fox "
+            "jumps over a "
+            "lazy dog. "
+            "abcdefghijklmn"
+            "opq rstuvwxyz"
+        )
+    }
+
+    #[test]
+    fn test_19() {
+        assert_flow!(
+            "为了提供更好的服务和服务。\n请您在使用前充分阅读《TextFlowwwwwwwwwwwwwwwwww 使用隐私 Policy》"
+            => 25 =>
+            "为了提供更好的服务和服"
+            "务。"
+            "请您在使用前充分阅读"
+            "《TextFlowwwwwwwwwwwwwwww"
+            "ww 使用隐私 Policy》"
+        )
+    }
+
+    #[test]
+    fn test_20() {
+        assert_flow!(
+            "《Loooooooooooooooong Text》"
+            => 20 =>
+            "《Loooooooooooooooon"
+            "g Text》"
+        );
+    }
+
+    #[test]
+    fn test_21() {
+        assert_flow!(
+            "abc,    bcd, efg  bc"
+            => 5 =>
+            "abc, "
+            "bcd, "
+            "efg  "
+            "bc"
+        );
+    }
+
+    #[test]
+    fn test_22() {
+        assert_flow!(
+            "an    apple         \"is\" a fruit"
+            => 1 =>
+            "a"
+            "n"
+            "a"
+            "p"
+            "p"
+            "l"
+            "e"
+            "\""
+            "i"
+            "s"
+            "\""
+            "a"
+            "f"
+            "r"
+            "u"
+            "i"
+            "t"
+        );
+    }
+
+    #[test]
+    fn test_23() {
+        assert_flow!(
+            "a book named 《<《「Wow》>」"
+            => 27 =>
+            "a book named "
+            "《<《「Wow》>」"
+        );
+    }
 }

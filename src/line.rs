@@ -216,13 +216,10 @@ impl Iterator for Line<'_> {
         }
 
         if end == brk {
-            while let Some(word_next) = word_iter.peek() {
+            if let Some(word_next) = word_iter.peek() {
                 if word_next.word_type == WordType::SPACE {
                     let space_len = word_next.position.end - word_next.position.start;
                     brk += space_len;
-                    word_iter.next();
-                } else {
-                    break;
                 }
             }
         }

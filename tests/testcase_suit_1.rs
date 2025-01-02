@@ -23,7 +23,7 @@ mod testcase_suit_1 {
         let max_width = 10;
         let mut flow = TextFlow::new(text, max_width);
 
-        assert_line!(text, flow.next(), Some("Hello, "));
+        assert_line!(text, flow.next(), Some("Hello,"));
         assert_line!(text, flow.next(), Some("world!"));
         assert_line!(text, flow.next(), None);
         assert_line!(text, flow.next(), None);
@@ -46,7 +46,7 @@ mod testcase_suit_1 {
         assert_flow!(
             "Hello, world!"
             => 10 =>
-            "Hello, "
+            "Hello,"
             "world!"
         );
     }
@@ -67,7 +67,7 @@ mod testcase_suit_1 {
         assert_flow!(
             "This is a Text》〉>?!"
             => 20 =>
-            "This is a "
+            "This is a"
             "Text》〉>?!"
         );
     }
@@ -77,7 +77,7 @@ mod testcase_suit_1 {
         assert_flow!(
             "<〈《Teext a>>>"
             => 12 =>
-            "<〈《Teext "
+            "<〈《Teext"
             "a>>>"
         );
     }
@@ -127,8 +127,8 @@ mod testcase_suit_1 {
         assert_flow!(
             "this is aaaa \"text word\" test"
             => 15 =>
-            "this is aaaa "
-            "\"text word\" "
+            "this is aaaa"
+            "\"text word\""
             "test"
         );
     }
@@ -148,7 +148,7 @@ mod testcase_suit_1 {
         assert_flow!(
             "this is a <text> test"
             => 15 =>
-            "this is a "
+            "this is a"
             "<text> test"
         );
     }
@@ -168,7 +168,7 @@ mod testcase_suit_1 {
         assert_flow!(
             "实时操作系统 Nuttx》。"
             => 20 =>
-            "实时操作系统 "
+            "实时操作系统"
             "Nuttx》。"
         );
     }
@@ -179,7 +179,7 @@ mod testcase_suit_1 {
             "The quick brown fox jumps over a lazy dog."
             => 15 =>
             "The quick brown"
-            "fox jumps over "
+            "fox jumps over"
             "a lazy dog."
         );
     }
@@ -192,10 +192,10 @@ mod testcase_suit_1 {
             "八百标兵奔北坡"
             "炮兵并排北边跑"
             "666中英文测"
-            "试。The quick "
-            "brown fox "
-            "jumps over a "
-            "lazy dog. "
+            "试。The quick"
+            "brown fox"
+            "jumps over a"
+            "lazy dog."
             "abcdefghijklmn"
             "opq rstuvwxyz"
         )
@@ -227,11 +227,11 @@ mod testcase_suit_1 {
     #[test]
     fn test_21() {
         assert_flow!(
-            "abc,    bcd, efg  bc"
+            "abc, bcd, efg  bc"
             => 5 =>
-            "abc, "
-            "bcd, "
-            "efg  "
+            "abc,"
+            "bcd,"
+            "efg"
             "bc"
         );
     }
@@ -266,7 +266,7 @@ mod testcase_suit_1 {
         assert_flow!(
             "a book named 《<《「Wow》>」"
             => 27 =>
-            "a book named "
+            "a book named"
             "《<《「Wow》>」"
         );
     }

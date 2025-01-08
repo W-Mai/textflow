@@ -81,6 +81,7 @@ impl Iterator for Line<'_> {
         let mut brk;
         let mut is_line_leading = true;
         let mut unresolved_op_qu: Option<WordInfo> = None;
+        let mut unresolved_op_qu_word_count = 0;
         let mut real_width = 0;
         let mut ideal_width = 0;
 
@@ -109,7 +110,14 @@ impl Iterator for Line<'_> {
 
             if word.word_type == WordType::OPEN_PUNCTUATION || word.word_type == WordType::QUOTATION
             {
-                unresolved_op_qu = Some(word.clone());
+                let mut qu_processed = false;
+
+                if word.word_type == WordType::QUOTATION && unresolved_op_qu.is_none() {
+                    unresolved_op_qu = Some(word.clone());
+                    unresolved_op_qu_word_count = 0;
+                    qu_processed = true;
+                }
+
                 word_iter.advance_cursor();
                 if let Some(word_next) = word_iter.peek() {
                     if word_next.position.brk != usize::MAX
@@ -119,13 +127,27 @@ impl Iterator for Line<'_> {
                             continue;
                         }
 
-                        end = word.position.start;
-                        brk = word.position.start;
+                        if unresolved_op_qu.is_some() && unresolved_op_qu_word_count == 0 {
+                            let qu = unresolved_op_qu.unwrap();
+                            end = qu.position.start;
+                            brk = qu.position.start;
+                        } else {
+                            end = word.position.start;
+                            brk = word.position.start;
 
-                        real_width -= word.real_width;
-                        ideal_width -= word.ideal_width;
+                            real_width -= word.real_width;
+                            ideal_width -= word.ideal_width;
+                        }
                         break;
                     }
+                }
+
+                if !qu_processed
+                    && word.word_type == WordType::QUOTATION
+                    && unresolved_op_qu.is_some()
+                {
+                    unresolved_op_qu.take();
+                    unresolved_op_qu_word_count = 0;
                 }
             }
 
@@ -148,10 +170,20 @@ impl Iterator for Line<'_> {
                             || word_next.word_type == WordType::QUOTATION
                             || word_next.word_type == WordType::HYPHEN
                         {
-                            end = word_next.position.end;
-                            brk = word_next.position.brk;
-                            real_width += word_next.real_width;
-                            ideal_width += word_next.ideal_width;
+                            if word.word_type == WordType::QUOTATION {
+                                if unresolved_op_qu.is_some() {
+                                    end = word.position.start;
+                                    brk = word.position.start;
+                                } else {
+                                    end = word.position.end;
+                                    brk = word.position.end;
+                                }
+                            } else {
+                                end = word_next.position.end;
+                                brk = word_next.position.brk;
+                                real_width += word_next.real_width;
+                                ideal_width += word_next.ideal_width;
+                            }
                             break;
                         }
                     }
@@ -173,7 +205,8 @@ impl Iterator for Line<'_> {
                             end = word_next.position.end;
                             brk = word_next.position.brk;
                         } else {
-                            if let Some(op_qu) = unresolved_op_qu {
+                            if unresolved_op_qu.is_some() && unresolved_op_qu_word_count == 0 {
+                                let op_qu = unresolved_op_qu.unwrap();
                                 end = op_qu.position.start;
                                 brk = op_qu.position.start;
                             } else {
@@ -182,15 +215,22 @@ impl Iterator for Line<'_> {
                             }
                         }
 
-                        real_width -= word.real_width;
-                        ideal_width -= word.ideal_width;
+                        if is_line_leading == false {
+                            real_width -= word.real_width;
+                            ideal_width -= word.ideal_width;
+                        } else {
+                            real_width += word_next.real_width;
+                            ideal_width += word_next.ideal_width;
+                        }
                     }
                     break;
                 } else if word.word_type == WordType::CJK
                     || word.word_type == WordType::LATIN
                     || word.word_type == WordType::NUMBER
                 {
-                    unresolved_op_qu = None;
+                    if unresolved_op_qu.is_some() {
+                        unresolved_op_qu_word_count += 1;
+                    }
                 }
             } else {
                 end = word.position.end;
@@ -199,7 +239,7 @@ impl Iterator for Line<'_> {
                 break;
             }
 
-            if unresolved_op_qu.is_none() {
+            if unresolved_op_qu.is_none() || unresolved_op_qu_word_count > 0 {
                 is_line_leading = false;
             }
         }

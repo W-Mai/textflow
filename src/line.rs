@@ -90,6 +90,7 @@ impl Iterator for Line<'_> {
         let mut unresolved_op_qu_word_count = 0;
         let mut real_width = 0;
         let mut ideal_width = 0;
+        let mut should_take_new_one = false;
 
         loop {
             let word = word_iter.peek()?.clone();
@@ -103,12 +104,14 @@ impl Iterator for Line<'_> {
             {
                 end = word.position.end;
                 brk = word.position.brk;
+                should_take_new_one = true;
                 break;
             }
 
             if word.word_type == WordType::NEWLINE || word.word_type == WordType::RETURN {
                 end = word.position.end;
                 brk = word.position.end;
+                should_take_new_one = true;
                 break;
             }
 
@@ -244,6 +247,19 @@ impl Iterator for Line<'_> {
 
             if unresolved_op_qu.is_none() || unresolved_op_qu_word_count > 0 {
                 is_line_leading = false;
+            }
+        }
+
+        if should_take_new_one {
+            word_iter.next();
+        }
+
+        if end == brk {
+            if let Some(word_next) = word_iter.peek() {
+                if word_next.word_type == WordType::SPACE {
+                    let space_len = word_next.position.end - word_next.position.start;
+                    brk += space_len;
+                }
             }
         }
 

@@ -228,6 +228,9 @@ impl Iterator for Word<'_> {
                     break;
                 }
                 WordType::SPACE => {
+                    if word_type_next == WordType::SPACE {
+                        continue;
+                    }
                     break;
                 }
                 WordType::TAB => {
@@ -409,5 +412,16 @@ mod tests {
         assert_eq!(word.position.end, 7);
         assert_eq!(word.position.brk, 4);
         assert_eq!(&text[word.position.start..word.position.brk], ">》");
+    }
+
+    #[test]
+    fn test_7() {
+        let text = "     ".to_string();
+        let mut flow = Word::new(&text, 4, 4);
+
+        let word = flow.next().unwrap();
+        assert_eq!(word.word_type, WordType::SPACE);
+        assert_eq!(word.position.end, 5);
+        assert_eq!(&text[word.position.start..word.position.brk], "    ");
     }
 }

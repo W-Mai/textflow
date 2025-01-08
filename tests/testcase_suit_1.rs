@@ -270,4 +270,14 @@ mod testcase_suit_1 {
             "《<《「Wow》>」"
         );
     }
+
+    #[test]
+    fn test_24() {
+        assert_flow!(
+            "a book named \"various"
+            => 13 =>
+            "a book named"
+            "\"various"
+        );
+    }
 }

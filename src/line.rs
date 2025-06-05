@@ -1,6 +1,14 @@
 use crate::word::{Word, WordInfo, WordType};
 use peekmore::PeekMore;
 
+/// Flags for Line
+///
+/// - FLAG_BREAK_NONE: No break
+/// - FLAG_BREAK_ALL: Break all
+type Flags = u16;
+const FLAG_BREAK_NONE: u16 = 0000_0000_0000_0000;
+const FLAG_BREAK_ALL: u16 = 0000_0000_0000_0001;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct LinePosition {
     pub start: usize,
@@ -30,6 +38,7 @@ pub struct Line<'a> {
     max_width: usize,
     tab_width: usize,
     long_break: bool,
+    flags: Flags,
 }
 
 #[allow(dead_code)]
@@ -41,6 +50,7 @@ impl Line<'_> {
             max_width,
             tab_width,
             long_break: false,
+            flags: FLAG_BREAK_NONE,
         }
     }
 
@@ -56,6 +66,11 @@ impl Line<'_> {
 
     pub fn with_long_break(mut self, long_break: bool) -> Self {
         self.long_break = long_break;
+        self
+    }
+
+    pub fn with_flags(mut self, flags: Flags) -> Self {
+        self.flags = flags;
         self
     }
 }
@@ -83,6 +98,8 @@ impl Iterator for Line<'_> {
         )
         .peekmore();
 
+        let break_all = (self.flags & FLAG_BREAK_ALL) == FLAG_BREAK_ALL;
+
         let mut end;
         let mut brk;
         let mut is_line_leading = true;
@@ -96,6 +113,27 @@ impl Iterator for Line<'_> {
             let word = word_iter.peek()?.clone();
             real_width += word.real_width;
             ideal_width += word.ideal_width;
+
+            if break_all {
+                word_iter.next();
+
+                let word_next = word_iter.peek();
+                if let Some(word_next) = word_next {
+                    if word_next.position.brk != usize::MAX {
+                        end = word_next.position.end;
+                        brk = word_next.position.brk;
+                        real_width += word_next.real_width;
+                        ideal_width += word_next.ideal_width;
+                        break;
+                    }
+                } else {
+                    end = word.position.end;
+                    brk = word.position.end;
+                    break;
+                }
+
+                continue;
+            }
 
             if is_line_leading
                 && self.long_break == true
@@ -276,8 +314,20 @@ impl Iterator for Line<'_> {
 mod tests {
     use super::*;
 
-    fn do_a_test(text: &str, n: usize) {
-        let flow = Line::new(text, n, 4).with_long_break(true);
+    macro_rules! do_a_test {
+        ($text:expr, $n: expr) => {
+            do_a_test($text, $n, FLAG_BREAK_NONE);
+        };
+
+        ($text:expr, $n: expr, $flags:expr) => {
+            do_a_test($text, $n, $flags);
+        };
+    }
+
+    fn do_a_test(text: &str, n: usize, flags: Flags) {
+        let flow = Line::new(text, n, 4)
+            .with_long_break(true)
+            .with_flags(flags);
 
         for line in flow {
             let mut display_buffer = text
@@ -307,69 +357,74 @@ mod tests {
 
     #[test]
     fn test_line_1() {
-        do_a_test("The quick brown fox jumps over a lazy dog.", 15);
+        do_a_test!("The quick brown fox jumps over a lazy dog.", 15);
     }
 
     #[test]
     fn test_line_2() {
-        do_a_test("八百标兵奔北坡炮兵并排北边跑666中英文测试。The quick brown fox jumps over a lazy dog. abcdefghijklmnopq rstuvwxyz", 14);
+        do_a_test!("八百标兵奔北坡炮兵并排北边跑666中英文测试。The quick brown fox jumps over a lazy dog. abcdefghijklmnopq rstuvwxyz", 14);
     }
 
     #[test]
     fn test_line_3() {
-        do_a_test(
+        do_a_test!(
             "为了提供更好的服务和服务。\n请您在使用前充分阅读《TextFlowwwwwwwwwwwwwwwwww 使用隐私 Policy》",
-            25,
+            25
         );
     }
 
     #[test]
     fn test_line_4() {
-        do_a_test("《Loooooooooooooooong Text》", 20);
+        do_a_test!("《Loooooooooooooooong Text》", 20);
     }
 
     #[test]
     fn test_line_5() {
-        do_a_test("This is a Text》〉>?!", 20);
-        do_a_test("<〈《Teext a>>>", 12);
-        do_a_test("<〈《Tee<ext><>>", 12);
-        do_a_test("<〈《Tee<eext><>>", 12);
-        do_a_test("<〈<<《你》>", 10);
-        do_a_test("<〈<<《Loooooo｜ong>>", 14);
-        do_a_test("this is aaaa \"text word\" test", 15);
-        do_a_test("this is a \"text word\" test", 15);
-        do_a_test("this is a <text> test", 15);
-        do_a_test("this is a text-test", 15);
-        do_a_test("实时操作系统 Nuttx》。", 20);
+        do_a_test!("This is a Text》〉>?!", 20);
+        do_a_test!("<〈《Teext a>>>", 12);
+        do_a_test!("<〈《Tee<ext><>>", 12);
+        do_a_test!("<〈《Tee<eext><>>", 12);
+        do_a_test!("<〈<<《你》>", 10);
+        do_a_test!("<〈<<《Loooooo｜ong>>", 14);
+        do_a_test!("this is aaaa \"text word\" test", 15);
+        do_a_test!("this is a \"text word\" test", 15);
+        do_a_test!("this is a <text> test", 15);
+        do_a_test!("this is a text-test", 15);
+        do_a_test!("实时操作系统 Nuttx》。", 20);
     }
 
     #[test]
     fn test_line_6() {
         for i in 1..=15 {
-            do_a_test("an \"apple\" tree", i);
+            do_a_test!("an \"apple\" tree", i);
         }
     }
 
     #[test]
     fn test_line_7() {
-        do_a_test("abc,    bcd, efg  bc", 5);
-        do_a_test("abc,\n    bcd, efg  bc", 5);
-        do_a_test("an    apple         \"is\" a fruit", 1);
-        do_a_test("anyone can be able to", 13);
+        do_a_test!("abc,    bcd, efg  bc", 5);
+        do_a_test!("abc,\n    bcd, efg  bc", 5);
+        do_a_test!("an    apple         \"is\" a fruit", 1);
+        do_a_test!("anyone can be able to", 13);
     }
 
     #[test]
     fn test_line_8() {
-        do_a_test("a book named 《<《「Wow》>」", 27);
+        do_a_test!("a book named 《<《「Wow》>」", 27);
     }
 
     #[test]
     fn test_line_9() {
-        do_a_test("b  \n\n     a", 2);
+        do_a_test!("b  \n\n     a", 2);
     }
 
     #[test]
     fn test_line_10() {
-        do_a_test("\"abc     aa", 2);
+        do_a_test!("\"abc     aa", 2);
+    }
+
+    #[test]
+    fn test_line_11() {
+        do_a_test!("f abcdefghijklmnopq", 10, FLAG_BREAK_ALL);
     }
 }

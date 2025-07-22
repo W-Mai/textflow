@@ -128,7 +128,11 @@ impl Iterator for Line<'_> {
                     }
                 } else {
                     end = word.position.end;
-                    brk = word.position.end;
+                    brk = if word.position.brk != usize::MAX {
+                        word.position.brk
+                    } else {
+                        word.position.end
+                    };
                     break;
                 }
 

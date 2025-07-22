@@ -146,6 +146,8 @@ impl Word<'_> {
 impl Iterator for Word<'_> {
     type Item = WordInfo;
 
+    /// TODO:
+    /// - [ ] support letter space
     fn next(&mut self) -> Option<Self::Item> {
         let word_info_prev_ref = self.word_info_prev.as_ref();
         let start = word_info_prev_ref.map_or(0, |v| v.position.end);

@@ -41,6 +41,7 @@ pub struct Word<'a> {
 
     remaining_width: usize,
     tab_width: usize,
+    letter_space: isize,
 }
 
 fn is_latin(ch: char) -> bool {
@@ -125,12 +126,13 @@ fn get_char_width(ch: char, tab_width: usize) -> usize {
 
 #[allow(unused)]
 impl Word<'_> {
-    pub fn new(text: &str, remaining_width: usize, tab_width: usize) -> Word {
+    pub fn new(text: &str, remaining_width: usize, tab_width: usize, letter_space: isize) -> Word {
         Word {
             char_indices: text.char_indices().peekable(),
             word_info_prev: None,
-            remaining_width,
+            remaining_width: remaining_width.saturating_add_signed(letter_space),
             tab_width,
+            letter_space,
         }
     }
 
@@ -174,7 +176,7 @@ impl Iterator for Word<'_> {
             let word_type_next = WordType::from(char_next);
 
             word_pos_end += char_len;
-            word_width += char_width;
+            word_width += char_width.saturating_add_signed(self.letter_space);
 
             if word_width + char_width_next > self.remaining_width {
                 if brk_pos == usize::MAX {
@@ -280,7 +282,7 @@ mod tests {
     #[test]
     fn test_1() {
         let text = "Hello, world!".to_string();
-        let mut flow = Word::new(&text, 10, 4);
+        let mut flow = Word::new(&text, 10, 4, 0);
 
         let word = flow.next().unwrap();
         assert_eq!(word.word_type, WordType::LATIN);
@@ -314,7 +316,7 @@ mod tests {
     #[test]
     fn test_2() {
         let text = "".to_string();
-        let mut flow = Word::new(&text, 100, 4);
+        let mut flow = Word::new(&text, 100, 4, 0);
 
         let word = flow.next();
         assert_eq!(word, None);
@@ -323,7 +325,7 @@ mod tests {
     #[test]
     fn test_3() {
         let text = "H".to_string();
-        let mut flow = Word::new(&text, 100, 4);
+        let mut flow = Word::new(&text, 100, 4, 0);
 
         let word = flow.next().unwrap();
         assert_eq!(word.word_type, WordType::LATIN);
@@ -335,7 +337,7 @@ mod tests {
     fn test_4() {
         let text = "你好\n世界 Hello123 456 ".to_string();
 
-        let mut flow = Word::new(&text, 100, 4);
+        let mut flow = Word::new(&text, 100, 4, 0);
 
         let word = flow.next().unwrap();
         assert_eq!(word.word_type, WordType::CJK);
@@ -407,7 +409,7 @@ mod tests {
     #[test]
     fn test_6() {
         let text = ">》〉".to_string();
-        let mut flow = Word::new(&text, 4, 4);
+        let mut flow = Word::new(&text, 4, 4, 0);
 
         let word = flow.next().unwrap();
         assert_eq!(word.word_type, WordType::CLOSE_PUNCTUATION);
@@ -419,7 +421,7 @@ mod tests {
     #[test]
     fn test_7() {
         let text = "     ".to_string();
-        let mut flow = Word::new(&text, 4, 4);
+        let mut flow = Word::new(&text, 4, 4, 0);
 
         let word = flow.next().unwrap();
         assert_eq!(word.word_type, WordType::SPACE);

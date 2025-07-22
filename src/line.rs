@@ -38,18 +38,20 @@ pub struct Line<'a> {
     max_width: usize,
     tab_width: usize,
     long_break: bool,
+    letter_space: isize,
     flags: Flags,
 }
 
 #[allow(dead_code)]
 impl Line<'_> {
-    pub fn new(text: &str, max_width: usize, tab_width: usize) -> Line {
+    pub fn new(text: &str, max_width: usize, tab_width: usize, letter_space: isize) -> Line {
         Line {
             text,
             line_info_prev: None,
             max_width,
             tab_width,
             long_break: false,
+            letter_space,
             flags: FLAG_BREAK_NONE,
         }
     }
@@ -95,6 +97,7 @@ impl Iterator for Line<'_> {
             &self.text[line_info.position.start..],
             self.max_width,
             self.tab_width,
+            self.letter_space,
         )
         .peekmore();
 
@@ -320,16 +323,20 @@ mod tests {
 
     macro_rules! do_a_test {
         ($text:expr, $n: expr) => {
-            do_a_test($text, $n, FLAG_BREAK_NONE);
+            do_a_test($text, $n, FLAG_BREAK_NONE, 0);
         };
 
         ($text:expr, $n: expr, $flags:expr) => {
-            do_a_test($text, $n, $flags);
+            do_a_test($text, $n, $flags, 0);
+        };
+
+        ($text:expr, $n: expr, $flags:expr, $letter_space:expr) => {
+            do_a_test($text, $n, $flags, $letter_space);
         };
     }
 
-    fn do_a_test(text: &str, n: usize, flags: Flags) {
-        let flow = Line::new(text, n, 4)
+    fn do_a_test(text: &str, n: usize, flags: Flags, letter_space: isize) {
+        let flow = Line::new(text, n, 4, letter_space)
             .with_long_break(true)
             .with_flags(flags);
 
@@ -338,6 +345,14 @@ mod tests {
                 [line.position.start..line.position.brk.min(line.position.end)]
                 .trim_end_matches("\n")
                 .to_owned();
+            if letter_space > 0 {
+                let spacer = " ".repeat(letter_space as usize);
+                display_buffer = display_buffer
+                    .chars()
+                    .map(|c| c.to_string())
+                    .collect::<Vec<_>>()
+                    .join(&spacer);
+            }
             let text_len = display_buffer.len();
 
             // calc real width of the line: wide char is 2, others are 1

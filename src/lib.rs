@@ -32,10 +32,10 @@ impl TextFlow<'_> {
             word_spacing: 0,
             tab_width: 0,
             context: TextFlowContext {},
-            lines: Line::new("", 0, 0),
+            lines: Line::new("", 0, 0, 0),
         };
 
-        flow.lines = Line::new(flow.text, flow.max_width, flow.tab_width).with_long_break(true);
+        flow.lines = Line::new(flow.text, flow.max_width, flow.tab_width, 0).with_long_break(true);
 
         flow
     }

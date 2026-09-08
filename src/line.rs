@@ -1,5 +1,5 @@
+use crate::lookahead::Lookahead;
 use crate::word::{Word, WordInfo, WordType};
-use peekmore::PeekMore;
 
 type Flags = u16;
 const FLAG_BREAK_NONE: u16 = 0;
@@ -99,13 +99,12 @@ impl Iterator for Line<'_> {
             ideal_width: 0,
         };
 
-        let mut word_iter = Word::new(
+        let mut word_iter = Lookahead::new(Word::new(
             &self.text[line_info.position.start..],
             self.max_width,
             self.tab_width,
             self.letter_space,
-        )
-        .peekmore();
+        ));
 
         let break_all = (self.flags & FLAG_BREAK_ALL) == FLAG_BREAK_ALL;
 
@@ -339,6 +338,7 @@ impl Iterator for Line<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::prelude::v1::*;
 
     macro_rules! do_a_test {
         ($text:expr, $n: expr) => {

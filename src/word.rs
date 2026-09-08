@@ -1,6 +1,6 @@
-use std::iter::Peekable;
-use std::ops::Not;
-use std::str::CharIndices;
+use core::iter::Peekable;
+use core::ops::Not;
+use core::str::CharIndices;
 
 #[derive(PartialEq, Debug, Clone)]
 pub enum WordType {
@@ -276,6 +276,7 @@ impl Iterator for Word<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::prelude::v1::*;
 
     #[test]
     fn test_1() {

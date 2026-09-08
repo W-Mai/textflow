@@ -1,6 +1,12 @@
+#![no_std]
+
+#[cfg(test)]
+extern crate std;
+
 use crate::line::{Line, LineInfo};
 
 mod line;
+mod lookahead;
 mod word;
 
 pub mod tests;

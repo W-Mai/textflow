@@ -1,13 +1,9 @@
 use crate::word::{Word, WordInfo, WordType};
 use peekmore::PeekMore;
 
-/// Flags for Line
-///
-/// - FLAG_BREAK_NONE: No break
-/// - FLAG_BREAK_ALL: Break all
 type Flags = u16;
-const FLAG_BREAK_NONE: u16 = 0000_0000_0000_0000;
-const FLAG_BREAK_ALL: u16 = 0000_0000_0000_0001;
+const FLAG_BREAK_NONE: u16 = 0;
+const FLAG_BREAK_ALL: u16 = 1;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LinePosition {
@@ -27,7 +23,8 @@ pub struct LineInfo {
 
 impl LineInfo {
     pub fn slices<'a>(&self, string: &'a str) -> &'a str {
-        &string[self.position.start..self.position.brk.min(self.position.end)]
+        string[self.position.start..self.position.brk.min(self.position.end)]
+            .trim_end_matches([' ', '\t', '\r', '\n'])
     }
 }
 
@@ -44,7 +41,7 @@ pub struct Line<'a> {
 
 #[allow(dead_code)]
 impl Line<'_> {
-    pub fn new(text: &str, max_width: usize, tab_width: usize, letter_space: isize) -> Line {
+    pub fn new(text: &str, max_width: usize, tab_width: usize, letter_space: isize) -> Line<'_> {
         Line {
             text,
             line_info_prev: None,
@@ -81,9 +78,18 @@ impl Iterator for Line<'_> {
     type Item = LineInfo;
 
     fn next(&mut self) -> Option<Self::Item> {
+        let mut start = self.line_info_prev.as_ref().map_or(0, |v| v.position.brk);
+        if self.line_info_prev.is_some() {
+            while let Some(character) = self.text[start..].chars().next() {
+                if !matches!(character, ' ' | '\t') {
+                    break;
+                }
+                start += character.len_utf8();
+            }
+        }
         let mut line_info = LineInfo {
             position: LinePosition {
-                start: self.line_info_prev.as_ref().map_or(0, |v| v.position.brk),
+                start,
                 end: 0,
                 brk: 0,
             },
@@ -143,9 +149,9 @@ impl Iterator for Line<'_> {
             }
 
             if is_line_leading
-                && self.long_break == true
+                && self.long_break
                 && word.position.brk != usize::MAX
-                && !(word.word_type == WordType::RETURN || word.word_type == WordType::NEWLINE)
+                && !(word.word_type == WordType::Return || word.word_type == WordType::Newline)
             {
                 end = word.position.end;
                 brk = word.position.brk;
@@ -153,19 +159,19 @@ impl Iterator for Line<'_> {
                 break;
             }
 
-            if word.word_type == WordType::NEWLINE || word.word_type == WordType::RETURN {
+            if word.word_type == WordType::Newline || word.word_type == WordType::Return {
                 end = word.position.end;
                 brk = word.position.end;
                 should_take_new_one = true;
                 break;
             }
 
-            if word.word_type == WordType::OPEN_PUNCTUATION || word.word_type == WordType::QUOTATION
+            if word.word_type == WordType::OpenPunctuation || word.word_type == WordType::Quotation
             {
                 let mut qu_processed = false;
 
                 if unresolved_op_qu.is_none()
-                    || (word.word_type == WordType::OPEN_PUNCTUATION
+                    || (word.word_type == WordType::OpenPunctuation
                         && unresolved_op_qu_word_count > 0)
                 {
                     unresolved_op_qu = Some(word.clone());
@@ -182,8 +188,10 @@ impl Iterator for Line<'_> {
                             continue;
                         }
 
-                        if unresolved_op_qu.is_some() && unresolved_op_qu_word_count == 0 {
-                            let qu = unresolved_op_qu.unwrap();
+                        if let Some(qu) = unresolved_op_qu
+                            .as_ref()
+                            .filter(|_| unresolved_op_qu_word_count == 0)
+                        {
                             end = qu.position.start;
                             brk = qu.position.start;
                         } else {
@@ -198,7 +206,7 @@ impl Iterator for Line<'_> {
                 }
 
                 if !qu_processed
-                    && word.word_type == WordType::QUOTATION
+                    && word.word_type == WordType::Quotation
                     && unresolved_op_qu.is_some()
                 {
                     unresolved_op_qu.take();
@@ -215,17 +223,17 @@ impl Iterator for Line<'_> {
                     brk = word.position.end;
 
                     if word_next.position.brk == word_next.position.end {
-                        if word_next.word_type == WordType::CJK
-                            || word_next.word_type == WordType::LATIN
-                            || word_next.word_type == WordType::NUMBER
+                        if word_next.word_type == WordType::Cjk
+                            || word_next.word_type == WordType::Latin
+                            || word_next.word_type == WordType::Number
                         {
                             continue;
-                        } else if word_next.word_type == WordType::SPACE
-                            || word_next.word_type == WordType::CLOSE_PUNCTUATION
-                            || word_next.word_type == WordType::QUOTATION
-                            || word_next.word_type == WordType::HYPHEN
+                        } else if word_next.word_type == WordType::Space
+                            || word_next.word_type == WordType::ClosePunctuation
+                            || word_next.word_type == WordType::Quotation
+                            || word_next.word_type == WordType::Hyphen
                         {
-                            if word.word_type == WordType::QUOTATION {
+                            if word.word_type == WordType::Quotation {
                                 if unresolved_op_qu.is_some() {
                                     end = word.position.start;
                                     brk = word.position.start;
@@ -243,22 +251,24 @@ impl Iterator for Line<'_> {
                         }
                     }
 
-                    if word_next.word_type == WordType::RETURN
-                        || word_next.word_type == WordType::NEWLINE
+                    if word_next.word_type == WordType::Return
+                        || word_next.word_type == WordType::Newline
                     {
                         brk += 1;
-                    } else if !(word.word_type == WordType::CLOSE_PUNCTUATION
-                        || word.word_type == WordType::QUOTATION)
-                        && (word_next.word_type == WordType::CLOSE_PUNCTUATION
-                            || word_next.word_type == WordType::QUOTATION
-                            || word_next.word_type == WordType::HYPHEN)
+                    } else if !(word.word_type == WordType::ClosePunctuation
+                        || word.word_type == WordType::Quotation)
+                        && (word_next.word_type == WordType::ClosePunctuation
+                            || word_next.word_type == WordType::Quotation
+                            || word_next.word_type == WordType::Hyphen)
                     {
                         if is_line_leading {
                             end = word_next.position.end;
                             brk = word_next.position.brk;
                         } else {
-                            if unresolved_op_qu.is_some() && unresolved_op_qu_word_count == 0 {
-                                let op_qu = unresolved_op_qu.unwrap();
+                            if let Some(op_qu) = unresolved_op_qu
+                                .as_ref()
+                                .filter(|_| unresolved_op_qu_word_count == 0)
+                            {
                                 end = op_qu.position.start;
                                 brk = op_qu.position.start;
                             } else {
@@ -267,7 +277,7 @@ impl Iterator for Line<'_> {
                             }
                         }
 
-                        if is_line_leading == false {
+                        if !is_line_leading {
                             real_width -= word.real_width;
                             ideal_width -= word.ideal_width;
                         } else {
@@ -276,13 +286,12 @@ impl Iterator for Line<'_> {
                         }
                     }
                     break;
-                } else if word.word_type == WordType::CJK
-                    || word.word_type == WordType::LATIN
-                    || word.word_type == WordType::NUMBER
+                } else if (word.word_type == WordType::Cjk
+                    || word.word_type == WordType::Latin
+                    || word.word_type == WordType::Number)
+                    && unresolved_op_qu.is_some()
                 {
-                    if unresolved_op_qu.is_some() {
-                        unresolved_op_qu_word_count += 1;
-                    }
+                    unresolved_op_qu_word_count += 1;
                 }
             } else {
                 end = word.position.end;
@@ -301,11 +310,21 @@ impl Iterator for Line<'_> {
 
         if end == brk {
             if let Some(word_next) = word_iter.peek() {
-                if word_next.word_type == WordType::SPACE {
+                if word_next.word_type == WordType::Space {
                     let space_len = word_next.position.end - word_next.position.start;
                     brk += space_len;
                 }
             }
+        }
+
+        if end == 0 && brk > 0 {
+            end = brk;
+        } else if brk > end
+            && !self.text[line_info.position.start + end..line_info.position.start + brk]
+                .chars()
+                .all(char::is_whitespace)
+        {
+            brk = end;
         }
 
         line_info.position.end = line_info.position.start + end;
@@ -445,5 +464,32 @@ mod tests {
     #[test]
     fn test_line_11() {
         do_a_test!("f abcdefghijklmnopq", 10, FLAG_BREAK_ALL);
+    }
+
+    #[test]
+    fn lines_advance_without_dropping_text() {
+        let text = "an \"apple\" tree";
+
+        for width in 1..=text.len() {
+            let lines = Line::new(text, width, 4, 0).with_long_break(true);
+            let mut rendered = String::new();
+            let mut previous_break = 0;
+
+            for line in lines {
+                assert!(line.position.brk > previous_break);
+                rendered.push_str(line.slices(text));
+                previous_break = line.position.brk;
+            }
+
+            assert_eq!(
+                rendered
+                    .chars()
+                    .filter(|ch| !ch.is_whitespace())
+                    .collect::<String>(),
+                text.chars()
+                    .filter(|ch| !ch.is_whitespace())
+                    .collect::<String>()
+            );
+        }
     }
 }

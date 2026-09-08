@@ -2,21 +2,20 @@ use std::iter::Peekable;
 use std::ops::Not;
 use std::str::CharIndices;
 
-#[allow(non_camel_case_types)]
 #[derive(PartialEq, Debug, Clone)]
 pub enum WordType {
-    LATIN,
-    CJK,
-    HYPHEN,
-    NUMBER,
-    OPEN_PUNCTUATION,
-    CLOSE_PUNCTUATION,
-    RETURN,
-    NEWLINE,
-    SPACE,
-    TAB,
-    QUOTATION,
-    UNKNOWN,
+    Latin,
+    Cjk,
+    Hyphen,
+    Number,
+    OpenPunctuation,
+    ClosePunctuation,
+    Return,
+    Newline,
+    Space,
+    Tab,
+    Quotation,
+    Unknown,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -45,11 +44,11 @@ pub struct Word<'a> {
 }
 
 fn is_latin(ch: char) -> bool {
-    ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z'
+    ch.is_ascii_alphabetic()
 }
 
 fn is_cjk(ch: char) -> bool {
-    ch >= '\u{4e00}' && ch <= '\u{9fff}'
+    ('\u{4e00}'..='\u{9fff}').contains(&ch)
 }
 
 fn is_open_punctuation(ch: char) -> bool {
@@ -89,18 +88,18 @@ fn is_quotation(ch: char) -> bool {
 impl From<char> for WordType {
     fn from(ch: char) -> Self {
         match ch {
-            ch if is_latin(ch) => WordType::LATIN,
-            ch if is_cjk(ch) => WordType::CJK,
-            '-' => WordType::HYPHEN,
-            ch if ch >= '0' && ch <= '9' => WordType::NUMBER,
-            ch if is_open_punctuation(ch) => WordType::OPEN_PUNCTUATION,
-            ch if is_close_punctuation(ch) => WordType::CLOSE_PUNCTUATION,
-            '\n' => WordType::NEWLINE,
-            '\r' => WordType::RETURN,
-            ' ' => WordType::SPACE,
-            '\t' => WordType::TAB,
-            ch if is_quotation(ch) => WordType::QUOTATION,
-            _ => WordType::UNKNOWN,
+            ch if is_latin(ch) => WordType::Latin,
+            ch if is_cjk(ch) => WordType::Cjk,
+            '-' => WordType::Hyphen,
+            ch if ch.is_ascii_digit() => WordType::Number,
+            ch if is_open_punctuation(ch) => WordType::OpenPunctuation,
+            ch if is_close_punctuation(ch) => WordType::ClosePunctuation,
+            '\n' => WordType::Newline,
+            '\r' => WordType::Return,
+            ' ' => WordType::Space,
+            '\t' => WordType::Tab,
+            ch if is_quotation(ch) => WordType::Quotation,
+            _ => WordType::Unknown,
         }
     }
 }
@@ -108,25 +107,28 @@ impl From<char> for WordType {
 fn get_char_width(ch: char, tab_width: usize) -> usize {
     let char_type = WordType::from(ch);
     match char_type {
-        WordType::LATIN => 1,
-        WordType::CJK => 2,
-        WordType::HYPHEN => 1,
-        WordType::NUMBER => 1,
-        WordType::CLOSE_PUNCTUATION | WordType::OPEN_PUNCTUATION => {
-            ch.is_ascii().not() as usize + 1
-        }
-        WordType::RETURN => 0,
-        WordType::NEWLINE => 0,
-        WordType::SPACE => 1,
-        WordType::TAB => tab_width,
-        WordType::UNKNOWN => 0,
+        WordType::Latin => 1,
+        WordType::Cjk => 2,
+        WordType::Hyphen => 1,
+        WordType::Number => 1,
+        WordType::ClosePunctuation | WordType::OpenPunctuation => ch.is_ascii().not() as usize + 1,
+        WordType::Return => 0,
+        WordType::Newline => 0,
+        WordType::Space => 1,
+        WordType::Tab => tab_width,
+        WordType::Unknown => 0,
         _ => ch.is_ascii().not() as usize + 1,
     }
 }
 
 #[allow(unused)]
 impl Word<'_> {
-    pub fn new(text: &str, remaining_width: usize, tab_width: usize, letter_space: isize) -> Word {
+    pub fn new(
+        text: &str,
+        remaining_width: usize,
+        tab_width: usize,
+        letter_space: isize,
+    ) -> Word<'_> {
         Word {
             char_indices: text.char_indices().peekable(),
             word_info_prev: None,
@@ -153,7 +155,7 @@ impl Iterator for Word<'_> {
         let start = word_info_prev_ref.map_or(0, |v| v.position.end);
 
         let mut word_pos_end = start;
-        let mut word_type = WordType::UNKNOWN;
+        let mut word_type = WordType::Unknown;
         let mut word_width = 0;
         let mut brk_pos = word_info_prev_ref.map_or(usize::MAX, |v| v.position.brk);
         let mut real_width = 0;
@@ -163,7 +165,7 @@ impl Iterator for Word<'_> {
             let char_len = ch.len_utf8();
             let char_width = get_char_width(ch, self.tab_width);
 
-            if word_type == WordType::UNKNOWN {
+            if word_type == WordType::Unknown {
                 word_type = WordType::from(ch);
             }
 
@@ -176,75 +178,73 @@ impl Iterator for Word<'_> {
             word_pos_end += char_len;
             word_width += char_width.saturating_add_signed(self.letter_space);
 
-            if word_width + char_width_next > self.remaining_width {
-                if brk_pos == usize::MAX {
-                    brk_pos = word_pos_end;
-                    real_width = word_width;
-                }
+            if word_width + char_width_next > self.remaining_width && brk_pos == usize::MAX {
+                brk_pos = word_pos_end;
+                real_width = word_width;
             }
 
             match word_type {
-                WordType::LATIN => {
-                    if word_type_next == WordType::LATIN || word_type_next == WordType::NUMBER {
+                WordType::Latin => {
+                    if word_type_next == WordType::Latin || word_type_next == WordType::Number {
                         continue;
                     } else {
                         break;
                     }
                 }
-                WordType::CJK => {
+                WordType::Cjk => {
                     break;
                 }
-                WordType::HYPHEN => {
-                    if word_type_next == WordType::HYPHEN {
+                WordType::Hyphen => {
+                    if word_type_next == WordType::Hyphen {
                         continue;
                     } else {
                         break;
                     }
                 }
-                WordType::NUMBER => {
-                    if word_type_next == WordType::NUMBER {
+                WordType::Number => {
+                    if word_type_next == WordType::Number {
                         continue;
                     } else {
                         break;
                     }
                 }
-                WordType::OPEN_PUNCTUATION => {
-                    if word_type_next == WordType::OPEN_PUNCTUATION {
+                WordType::OpenPunctuation => {
+                    if word_type_next == WordType::OpenPunctuation {
                         continue;
                     } else {
                         break;
                     }
                 }
-                WordType::CLOSE_PUNCTUATION => {
-                    if word_type_next == WordType::CLOSE_PUNCTUATION {
+                WordType::ClosePunctuation => {
+                    if word_type_next == WordType::ClosePunctuation {
                         continue;
                     } else {
                         break;
                     }
                 }
-                WordType::RETURN => {
+                WordType::Return => {
                     break;
                 }
-                WordType::NEWLINE => {
+                WordType::Newline => {
                     brk_pos = word_pos_end - 1;
                     break;
                 }
-                WordType::SPACE => {
-                    if word_type_next == WordType::SPACE {
+                WordType::Space => {
+                    if word_type_next == WordType::Space {
                         continue;
                     }
                     break;
                 }
-                WordType::TAB => {
+                WordType::Tab => {
                     break;
                 }
-                WordType::QUOTATION => {
-                    if word_type_next == WordType::QUOTATION {
+                WordType::Quotation => {
+                    if word_type_next == WordType::Quotation {
                         continue;
                     }
                     break;
                 }
-                WordType::UNKNOWN => {
+                WordType::Unknown => {
                     break;
                 }
             }
@@ -283,27 +283,27 @@ mod tests {
         let mut flow = Word::new(&text, 10, 4, 0);
 
         let word = flow.next().unwrap();
-        assert_eq!(word.word_type, WordType::LATIN);
+        assert_eq!(word.word_type, WordType::Latin);
         assert_eq!(word.position.end, 5);
         assert_eq!(&text[word.position.start..word.position.end], "Hello");
 
         let word = flow.next().unwrap();
-        assert_eq!(word.word_type, WordType::CLOSE_PUNCTUATION);
+        assert_eq!(word.word_type, WordType::ClosePunctuation);
         assert_eq!(word.position.end, 6);
         assert_eq!(&text[word.position.start..word.position.end], ",");
 
         let word = flow.next().unwrap();
-        assert_eq!(word.word_type, WordType::SPACE);
+        assert_eq!(word.word_type, WordType::Space);
         assert_eq!(word.position.end, 7);
         assert_eq!(&text[word.position.start..word.position.end], " ");
 
         let word = flow.next().unwrap();
-        assert_eq!(word.word_type, WordType::LATIN);
+        assert_eq!(word.word_type, WordType::Latin);
         assert_eq!(word.position.end, 12);
         assert_eq!(&text[word.position.start..word.position.end], "world");
 
         let word = flow.next().unwrap();
-        assert_eq!(word.word_type, WordType::CLOSE_PUNCTUATION);
+        assert_eq!(word.word_type, WordType::ClosePunctuation);
         assert_eq!(word.position.end, 13);
         assert_eq!(word.position.brk, 10);
         assert_eq!(&text[word.position.start..word.position.end], "!");
@@ -326,7 +326,7 @@ mod tests {
         let mut flow = Word::new(&text, 100, 4, 0);
 
         let word = flow.next().unwrap();
-        assert_eq!(word.word_type, WordType::LATIN);
+        assert_eq!(word.word_type, WordType::Latin);
         assert_eq!(word.position.end, 1);
         assert_eq!(&text[word.position.start..word.position.end], "H");
     }
@@ -338,52 +338,52 @@ mod tests {
         let mut flow = Word::new(&text, 100, 4, 0);
 
         let word = flow.next().unwrap();
-        assert_eq!(word.word_type, WordType::CJK);
+        assert_eq!(word.word_type, WordType::Cjk);
         assert_eq!(word.position.end, 3);
         assert_eq!(&text[word.position.start..word.position.end], "你");
 
         let word = flow.next().unwrap();
-        assert_eq!(word.word_type, WordType::CJK);
+        assert_eq!(word.word_type, WordType::Cjk);
         assert_eq!(word.position.end, 6);
         assert_eq!(&text[word.position.start..word.position.end], "好");
 
         let word = flow.next().unwrap();
-        assert_eq!(word.word_type, WordType::NEWLINE);
+        assert_eq!(word.word_type, WordType::Newline);
         assert_eq!(word.position.end, 7);
         assert_eq!(&text[word.position.start..word.position.end], "\n");
 
         let word = flow.next().unwrap();
-        assert_eq!(word.word_type, WordType::CJK);
+        assert_eq!(word.word_type, WordType::Cjk);
         assert_eq!(word.position.end, 10);
         assert_eq!(&text[word.position.start..word.position.end], "世");
 
         let word = flow.next().unwrap();
-        assert_eq!(word.word_type, WordType::CJK);
+        assert_eq!(word.word_type, WordType::Cjk);
         assert_eq!(word.position.end, 13);
         assert_eq!(&text[word.position.start..word.position.end], "界");
 
         let word = flow.next().unwrap();
-        assert_eq!(word.word_type, WordType::SPACE);
+        assert_eq!(word.word_type, WordType::Space);
         assert_eq!(word.position.end, 14);
         assert_eq!(&text[word.position.start..word.position.end], " ");
 
         let word = flow.next().unwrap();
-        assert_eq!(word.word_type, WordType::LATIN);
+        assert_eq!(word.word_type, WordType::Latin);
         assert_eq!(word.position.end, 22);
         assert_eq!(&text[word.position.start..word.position.end], "Hello123");
 
         let word = flow.next().unwrap();
-        assert_eq!(word.word_type, WordType::SPACE);
+        assert_eq!(word.word_type, WordType::Space);
         assert_eq!(word.position.end, 23);
         assert_eq!(&text[word.position.start..word.position.end], " ");
 
         let word = flow.next().unwrap();
-        assert_eq!(word.word_type, WordType::NUMBER);
+        assert_eq!(word.word_type, WordType::Number);
         assert_eq!(word.position.end, 26);
         assert_eq!(&text[word.position.start..word.position.end], "456");
 
         let word = flow.next().unwrap();
-        assert_eq!(word.word_type, WordType::SPACE);
+        assert_eq!(word.word_type, WordType::Space);
         assert_eq!(word.position.end, 27);
         assert_eq!(&text[word.position.start..word.position.end], " ");
 
@@ -410,7 +410,7 @@ mod tests {
         let mut flow = Word::new(&text, 4, 4, 0);
 
         let word = flow.next().unwrap();
-        assert_eq!(word.word_type, WordType::CLOSE_PUNCTUATION);
+        assert_eq!(word.word_type, WordType::ClosePunctuation);
         assert_eq!(word.position.end, 7);
         assert_eq!(word.position.brk, 4);
         assert_eq!(&text[word.position.start..word.position.brk], ">》");
@@ -422,7 +422,7 @@ mod tests {
         let mut flow = Word::new(&text, 4, 4, 0);
 
         let word = flow.next().unwrap();
-        assert_eq!(word.word_type, WordType::SPACE);
+        assert_eq!(word.word_type, WordType::Space);
         assert_eq!(word.position.end, 5);
         assert_eq!(&text[word.position.start..word.position.brk], "    ");
     }

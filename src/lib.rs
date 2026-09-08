@@ -23,7 +23,7 @@ pub struct TextFlow<'a> {
 }
 
 impl TextFlow<'_> {
-    pub fn new(text: &str, max_width: usize) -> TextFlow {
+    pub fn new(text: &str, max_width: usize) -> TextFlow<'_> {
         let mut flow = TextFlow {
             text,
             max_width,

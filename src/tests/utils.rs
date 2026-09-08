@@ -17,6 +17,7 @@ macro_rules! assert_flow {
         ];
         let max_width = $max_width;
         let flow = TextFlow::new(text, max_width);
+        let mut line_count = 0;
         for (i, line) in flow.enumerate() {
             assert_eq!(
                 line.slices(text),
@@ -24,6 +25,8 @@ macro_rules! assert_flow {
                 "assert failed in line {}",
                 i
             );
+            line_count += 1;
         }
+        assert_eq!(line_count, target_texts.len(), "line count differs");
     }};
 }

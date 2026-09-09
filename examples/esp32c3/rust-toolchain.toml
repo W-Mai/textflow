@@ -1,0 +1,4 @@
+[toolchain]
+channel = "1.97.0"
+components = ["llvm-tools"]
+targets = ["riscv32imc-unknown-none-elf"]

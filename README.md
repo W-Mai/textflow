@@ -16,6 +16,8 @@
   <p>
     <a href="#demo">Demo</a>
     · <a href="https://docs.rs/textflow-rs">API</a>
+    · <a href="#embedded-footprint">Embedded</a>
+    · <a href="#used-by">Used by</a>
     · <a href="#feature-flags">Features</a>
     · <a href="https://crates.io/crates/textflow-rs">Crate</a>
   </p>
@@ -28,6 +30,10 @@
 <p align="center">
   <img src="assets/textflow-architecture.svg" alt="TextFlow architecture: UTF-8 input passes through Unicode analysis, bidirectional resolution, typeface shaping, and line layout into positioned glyphs" width="1200">
 </p>
+
+## Used by
+
+[mirui](https://github.com/W-Mai/mirui) uses TextFlow for bounded Unicode analysis, shaping, line layout, and caret placement with MIRX and OpenType font sources across software, GPU, and web renderers.
 
 ## Demo
 
@@ -49,6 +55,20 @@ assert_eq!(lines, ["A small UI", "can still", "set type", "well."]);
 - Format-neutral `Typeface` and `GlyphSource` interfaces for TTF, OpenType, MIRX, flash-backed assets, and application-specific font stores.
 - Stable glyph IDs, UTF-8 cluster ranges, visual bidi runs, safe line boundaries, and caret positions.
 - Optional reusable heap workspace with admission limits and no growth during layout.
+
+## Embedded footprint
+
+The [ESP32-C3 demo](examples/esp32c3/) runs bidirectional resolution, font selection, shaping, wrapping, visual reordering, glyph positioning, and caret generation without an allocator. All working capacity is supplied by fixed arrays.
+
+Measured with Rust 1.97.0, `esp-hal` 1.1.0, size optimization, LTO, one codegen unit, and aborting panics:
+
+| ESP32-C3 release image | App partition | Static RAM (`.data + .bss`) |
+| --- | ---: | ---: |
+| ESP-HAL baseline | 73,536 B | 808 B |
+| Full TextFlow pipeline | 83,024 B | 824 B |
+| TextFlow delta | **9,488 B** | **16 B** |
+
+The demo's main stack frame is 2,336 B, including 2,304 B of caller-owned text buffers. Heap usage is 0 B. Run `examples/esp32c3/measure.sh` to rebuild both images and reproduce the Flash and static RAM comparison.
 
 ## Feature flags
 

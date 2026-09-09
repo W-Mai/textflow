@@ -1,0 +1,4 @@
+[build]
+target = "riscv32imc-unknown-none-elf"
+target-dir = "../../target/esp32c3"
+rustflags = ["-C", "link-arg=-Tlinkall.x"]

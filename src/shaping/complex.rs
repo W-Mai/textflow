@@ -96,6 +96,15 @@ impl<'a> GlyphBuffer<'a> {
         range: Range<usize>,
         replacements: &[ShapedGlyph],
     ) -> Result<(), ShapeError> {
+        self.replace_with(range, replacements.len(), |index| replacements[index])
+    }
+
+    pub fn replace_with(
+        &mut self,
+        range: Range<usize>,
+        replacement_len: usize,
+        mut replacement: impl FnMut(usize) -> ShapedGlyph,
+    ) -> Result<(), ShapeError> {
         if range.start > range.end || range.end > self.len {
             return Err(ShapeError::InvalidGlyphRange);
         }
@@ -103,18 +112,20 @@ impl<'a> GlyphBuffer<'a> {
         let required = self
             .len
             .checked_sub(removed)
-            .and_then(|len| len.checked_add(replacements.len()))
+            .and_then(|len| len.checked_add(replacement_len))
             .ok_or(ShapeError::InsufficientCapacity {
                 required: usize::MAX,
             })?;
         if required > self.storage.len() {
             return Err(ShapeError::InsufficientCapacity { required });
         }
-        if replacements.len() != removed {
+        if replacement_len != removed {
             self.storage
-                .copy_within(range.end..self.len, range.start + replacements.len());
+                .copy_within(range.end..self.len, range.start + replacement_len);
         }
-        self.storage[range.start..range.start + replacements.len()].copy_from_slice(replacements);
+        for index in 0..replacement_len {
+            self.storage[range.start + index] = replacement(index);
+        }
         self.len = required;
         Ok(())
     }
@@ -406,6 +417,26 @@ mod tests {
             Err(ShapeError::InsufficientCapacity { required: 4 })
         );
         assert_eq!(*buffer.get(0).unwrap(), before);
+    }
+
+    #[test]
+    fn glyph_buffer_builds_variable_replacements_in_caller_storage() {
+        let mut storage = [ShapedGlyph::default(); 4];
+        storage[0] = ShapedGlyph::new(GlyphId::new(1), TextRange::new(0, 1));
+        storage[1] = ShapedGlyph::new(GlyphId::new(2), TextRange::new(1, 2));
+        let mut buffer = GlyphBuffer::new(&mut storage, 2).unwrap();
+
+        buffer
+            .replace_with(0..1, 3, |index| {
+                ShapedGlyph::new(GlyphId::new(10 + index as u16), TextRange::new(0, 1))
+            })
+            .unwrap();
+
+        assert_eq!(buffer.len(), 4);
+        assert_eq!(buffer.get(0).unwrap().glyph_id(), GlyphId::new(10));
+        assert_eq!(buffer.get(1).unwrap().glyph_id(), GlyphId::new(11));
+        assert_eq!(buffer.get(2).unwrap().glyph_id(), GlyphId::new(12));
+        assert_eq!(buffer.get(3).unwrap().glyph_id(), GlyphId::new(2));
     }
 
     #[test]

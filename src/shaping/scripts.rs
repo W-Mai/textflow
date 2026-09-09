@@ -236,8 +236,8 @@ impl ScriptProvider for Arabic {
         font: &dyn super::ShapingData,
         glyphs: &mut GlyphBuffer<'_>,
     ) -> Result<(), ShapeError> {
-        normalize_clusters(request, glyphs);
         let joined = assign_joining_masks(request, glyphs)?;
+        normalize_clusters(request, glyphs);
         substitute(request, font, glyphs, *b"ccmp", ALL, true)?;
         substitute(request, font, glyphs, *b"locl", ALL, true)?;
         let mut forms = 0;
@@ -398,6 +398,39 @@ mod tests {
     }
 
     #[cfg(feature = "script-arabic")]
+    struct FormData;
+
+    #[cfg(feature = "script-arabic")]
+    impl ShapingData for FormData {
+        fn substitute(
+            &self,
+            request: LookupRequest<'_, '_>,
+            glyphs: &mut GlyphBuffer<'_>,
+        ) -> Result<LookupStatus, ShapeError> {
+            let Some(form) = [*b"isol", *b"init", *b"medi", *b"fina"]
+                .iter()
+                .position(|tag| *tag == request.feature())
+            else {
+                return Ok(LookupStatus::NotFound);
+            };
+            for index in 0..glyphs.len() {
+                if glyphs.mask(index).is_some_and(|mask| request.selects(mask)) {
+                    glyphs.set_glyph(index, GlyphId::new(200 + form as u16))?;
+                }
+            }
+            Ok(LookupStatus::Applied)
+        }
+
+        fn position(
+            &self,
+            _request: LookupRequest<'_, '_>,
+            _glyphs: &mut GlyphBuffer<'_>,
+        ) -> Result<LookupStatus, ShapeError> {
+            Ok(LookupStatus::Applied)
+        }
+    }
+
+    #[cfg(feature = "script-arabic")]
     #[test]
     fn arabic_assigns_contextual_forms_without_allocating() {
         let providers: [&dyn ScriptProvider; 1] = [&ARABIC];
@@ -434,6 +467,24 @@ mod tests {
         assert_eq!(glyphs.mask(1), Some(GlyphMask::NONE));
         assert_eq!(glyphs.mask(2), Some(MEDI));
         assert_eq!(glyphs.mask(3), Some(FINA));
+    }
+
+    #[cfg(feature = "script-arabic")]
+    #[test]
+    fn arabic_marks_do_not_receive_joining_forms() {
+        let providers: [&dyn ScriptProvider; 1] = [&ARABIC];
+        let face = super::super::ScriptTypeface::new(&Font, &FormData).with_scripts(&providers);
+        let text = "بَب";
+        let request =
+            ShapeRequest::new(text, 0..text.len(), Direction::RightToLeft, Script::Arabic);
+        let mut output = [ShapedGlyph::default(); 3];
+
+        let count = super::super::Typeface::shape_into(&face, &request, &mut output).unwrap();
+
+        assert_eq!(count, 3);
+        assert_eq!(output[1].glyph_id(), GlyphId::new('\u{64e}' as u16));
+        assert_ne!(output[0].cluster, output[1].cluster);
+        assert_eq!(output[1].cluster, output[2].cluster);
     }
 
     #[cfg(feature = "script-arabic")]

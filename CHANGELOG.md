@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Arabic combining marks retain transparent joining masks when grapheme clusters are merged.
+
 ## [0.2.1] - 2026-09-10
 
 ### Added

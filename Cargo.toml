@@ -10,10 +10,11 @@ unicode = [
     "dep:unicode-script",
     "dep:unicode-segmentation",
 ]
-bidi = ["unicode"]
+bidi = ["unicode", "dep:unicode-bidi"]
 shaping = ["bidi"]
 
 [dependencies]
+unicode-bidi = { version = "0.3.18", optional = true, default-features = false, features = ["hardcoded-data"] }
 unicode-linebreak = { version = "0.1.5", optional = true }
 unicode-script = { version = "0.5.8", optional = true }
 unicode-segmentation = { version = "1.13.3", optional = true }

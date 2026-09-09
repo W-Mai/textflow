@@ -1,5 +1,7 @@
 #![no_std]
 
+#[cfg(feature = "bidi")]
+extern crate alloc;
 #[cfg(test)]
 extern crate std;
 
@@ -9,6 +11,8 @@ mod line;
 mod lookahead;
 mod word;
 
+#[cfg(feature = "bidi")]
+pub mod bidi;
 pub mod tests;
 #[cfg(feature = "unicode")]
 pub mod unicode;

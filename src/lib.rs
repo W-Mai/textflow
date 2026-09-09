@@ -41,7 +41,7 @@ use crate::unicode::LineBreakProvider;
 #[cfg(all(feature = "alloc", feature = "shaping"))]
 use crate::workspace::{TextWorkspace, WorkspaceError};
 
-#[cfg(feature = "shaping")]
+#[cfg(feature = "bidi")]
 mod buffer;
 mod line;
 mod properties;

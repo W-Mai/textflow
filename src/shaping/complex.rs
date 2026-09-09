@@ -160,6 +160,10 @@ impl<'a, 'text> LookupRequest<'a, 'text> {
     pub const fn mask(self) -> GlyphMask {
         self.mask
     }
+
+    pub const fn selects(self, glyph_mask: GlyphMask) -> bool {
+        self.mask.bits() == GlyphMask::ALL.bits() || self.mask.intersects(glyph_mask)
+    }
 }
 
 pub trait ShapingData {
@@ -402,6 +406,17 @@ mod tests {
             Err(ShapeError::InsufficientCapacity { required: 4 })
         );
         assert_eq!(*buffer.get(0).unwrap(), before);
+    }
+
+    #[test]
+    fn all_lookup_mask_selects_unmarked_glyphs() {
+        let shape = ShapeRequest::new("a", 0..1, Direction::LeftToRight, Script::Latin);
+        let all = LookupRequest::new(&shape, *b"ccmp", GlyphMask::ALL);
+        let form = LookupRequest::new(&shape, *b"init", GlyphMask::new(1));
+
+        assert!(all.selects(GlyphMask::NONE));
+        assert!(form.selects(GlyphMask::new(1)));
+        assert!(!form.selects(GlyphMask::NONE));
     }
 
     #[test]

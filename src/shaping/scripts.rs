@@ -255,7 +255,7 @@ impl ScriptProvider for Arabic {
             return Err(ShapeError::ShapingUnavailable);
         }
         for tag in [*b"rlig", *b"calt", *b"liga"] {
-            substitute(request, font, glyphs, tag, ALL, tag != *b"liga")?;
+            substitute(request, font, glyphs, tag, ALL, true)?;
         }
         Ok(())
     }
@@ -362,10 +362,7 @@ mod tests {
             glyphs: &mut GlyphBuffer<'_>,
         ) -> Result<LookupStatus, ShapeError> {
             for index in 0..glyphs.len() {
-                if glyphs
-                    .mask(index)
-                    .is_some_and(|mask| mask.intersects(request.mask()))
-                {
+                if glyphs.mask(index).is_some_and(|mask| request.selects(mask)) {
                     glyphs.set_glyph(index, GlyphId::new(100 + request.feature()[0] as u16))?;
                 }
             }
@@ -411,6 +408,9 @@ mod tests {
         let mut output = [ShapedGlyph::default(); 5];
         let count = super::super::Typeface::shape_into(&face, &request, &mut output).unwrap();
         assert_eq!(count, 5);
+        assert!(output
+            .iter()
+            .all(|glyph| glyph.glyph_id() == GlyphId::new(208)));
         assert!(output.iter().all(|glyph| glyph.unsafe_to_break()));
     }
 
@@ -462,6 +462,9 @@ mod tests {
         let mut output = [ShapedGlyph::default(); 2];
         let count = super::super::Typeface::shape_into(&face, &request, &mut output).unwrap();
         assert_eq!(count, 2);
+        assert!(output
+            .iter()
+            .all(|glyph| glyph.glyph_id() == GlyphId::new(208)));
         assert_eq!(output[0].cluster, output[1].cluster);
         assert!(output.iter().all(|glyph| glyph.unsafe_to_break()));
     }

@@ -1,11 +1,6 @@
 use crate::bidi::Direction;
-use crate::unicode::Script;
-use alloc::vec::Vec;
+use crate::unicode::{graphemes, Script};
 use core::ops::Range;
-use core::str::FromStr;
-use rustybuzz::{
-    BufferClusterLevel, BufferFlags, Face, Feature, GlyphBuffer, Language, ShapePlan, UnicodeBuffer,
-};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct FaceKey(u64);
@@ -16,33 +11,59 @@ impl FaceKey {
     }
 }
 
-pub struct ShapingFace<'a> {
-    key: FaceKey,
-    face: Face<'a>,
-}
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct GlyphId(u16);
 
-impl<'a> ShapingFace<'a> {
-    pub fn new(key: FaceKey, data: &'a [u8], face_index: u32) -> Option<Self> {
-        Some(Self {
-            key,
-            face: Face::from_slice(data, face_index)?,
-        })
+impl GlyphId {
+    pub const fn new(value: u16) -> Self {
+        Self(value)
     }
 
-    pub const fn key(&self) -> FaceKey {
-        self.key
-    }
-
-    pub fn units_per_em(&self) -> u16 {
-        self.face.units_per_em() as u16
+    pub const fn value(self) -> u16 {
+        self.0
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct FlowPoint {
+    pub x: i32,
+    pub y: i32,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct FontMetrics {
+    pub units_per_em: u16,
+    pub ascender: i32,
+    pub descender: i32,
+    pub line_gap: i32,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct TextRange {
+    pub start: u32,
+    pub end: u32,
+}
+
+impl TextRange {
+    pub const fn new(start: u32, end: u32) -> Self {
+        Self { start, end }
+    }
+
+    pub const fn len(self) -> u32 {
+        self.end.saturating_sub(self.start)
+    }
+
+    pub const fn is_empty(self) -> bool {
+        self.start >= self.end
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FontFeature {
     pub tag: [u8; 4],
     pub value: u32,
-    pub range: Range<usize>,
+    pub range: TextRange,
 }
 
 impl FontFeature {
@@ -50,30 +71,23 @@ impl FontFeature {
         Self {
             tag,
             value,
-            range: 0..usize::MAX,
+            range: TextRange::new(0, u32::MAX),
         }
     }
 
-    pub fn with_range(mut self, range: Range<usize>) -> Self {
+    pub const fn with_range(mut self, range: TextRange) -> Self {
         self.range = range;
         self
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ShapeError {
-    InvalidTextRange,
-    InvalidLanguage,
-    TextTooLong,
-}
-
 pub struct ShapeRequest<'a> {
-    text: &'a str,
-    range: Range<usize>,
-    direction: Direction,
-    script: Script,
-    language: Option<&'a str>,
-    features: &'a [FontFeature],
+    pub text: &'a str,
+    pub range: Range<usize>,
+    pub direction: Direction,
+    pub script: Script,
+    pub language: Option<&'a str>,
+    pub features: &'a [FontFeature],
 }
 
 impl<'a> ShapeRequest<'a> {
@@ -99,200 +113,181 @@ impl<'a> ShapeRequest<'a> {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ShapeError {
+    InvalidTextRange,
+    TextTooLong,
+    InsufficientCapacity { required: usize },
+    UnsupportedScript { script: Script },
+    UnsupportedFeature { tag: [u8; 4] },
+    UnsupportedCluster { offset: usize },
+    MissingGlyph { offset: usize },
+    Source(TypefaceError),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TypefaceError {
+    Unavailable,
+    Malformed,
+    Unsupported,
+}
+
+impl From<TypefaceError> for ShapeError {
+    fn from(error: TypefaceError) -> Self {
+        Self::Source(error)
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ShapedGlyph {
-    pub glyph_id: u16,
-    pub cluster: Range<usize>,
-    pub x_advance: i32,
-    pub y_advance: i32,
-    pub x_offset: i32,
-    pub y_offset: i32,
-    pub unsafe_to_break: bool,
+    glyph_id: GlyphId,
+    flags: u16,
+    pub cluster: TextRange,
+    pub advance: FlowPoint,
+    pub offset: FlowPoint,
 }
 
-pub struct ShapedRun<'a> {
-    pub text: Range<usize>,
-    pub direction: Direction,
-    pub glyphs: &'a [ShapedGlyph],
-    pub x_advance: i32,
-    pub y_advance: i32,
-}
+impl ShapedGlyph {
+    const UNSAFE_TO_BREAK: u16 = 1;
 
-impl ShapedRun<'_> {
-    pub fn is_safe_break(&self, byte_offset: usize) -> bool {
-        if byte_offset == self.text.start || byte_offset == self.text.end {
-            return true;
+    pub const fn new(glyph_id: GlyphId, cluster: TextRange) -> Self {
+        Self {
+            glyph_id,
+            flags: 0,
+            cluster,
+            advance: FlowPoint { x: 0, y: 0 },
+            offset: FlowPoint { x: 0, y: 0 },
         }
-        if byte_offset < self.text.start || byte_offset > self.text.end {
-            return false;
+    }
+
+    pub const fn glyph_id(self) -> GlyphId {
+        self.glyph_id
+    }
+
+    pub const fn unsafe_to_break(self) -> bool {
+        self.flags & Self::UNSAFE_TO_BREAK != 0
+    }
+
+    pub fn set_unsafe_to_break(&mut self, unsafe_to_break: bool) {
+        if unsafe_to_break {
+            self.flags |= Self::UNSAFE_TO_BREAK;
+        } else {
+            self.flags &= !Self::UNSAFE_TO_BREAK;
         }
-        !self.glyphs.iter().any(|glyph| {
-            glyph.cluster.start < byte_offset && byte_offset < glyph.cluster.end
-                || glyph.cluster.start == byte_offset && glyph.unsafe_to_break
-        })
     }
 }
 
-#[derive(Default)]
-pub struct ShapingWorkspace {
-    buffer: Option<UnicodeBuffer>,
-    glyphs: Vec<ShapedGlyph>,
-    cluster_starts: Vec<usize>,
-    plan: Option<CachedPlan>,
-}
-
-impl ShapingWorkspace {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn shape<'a>(
-        &'a mut self,
-        face: &ShapingFace<'_>,
-        request: ShapeRequest<'_>,
-    ) -> Result<ShapedRun<'a>, ShapeError> {
-        validate_request(&request)?;
-        self.prepare_plan(face, &request)?;
-
-        let mut buffer = self.buffer.take().unwrap_or_default();
-        buffer.push_str(&request.text[request.range.clone()]);
-        buffer.set_pre_context(&request.text[..request.range.start]);
-        buffer.set_post_context(&request.text[request.range.end..]);
-        buffer.set_direction(rustybuzz_direction(request.direction));
-        buffer.set_script(rustybuzz_script(request.script));
-        if let Some(language) = self.plan.as_ref().and_then(|plan| plan.language.clone()) {
-            buffer.set_language(language);
-        }
-        buffer.set_cluster_level(BufferClusterLevel::MonotoneGraphemes);
-        let mut flags = BufferFlags::empty();
-        if request.range.start == 0 {
-            flags |= BufferFlags::BEGINNING_OF_TEXT;
-        }
-        if request.range.end == request.text.len() {
-            flags |= BufferFlags::END_OF_TEXT;
-        }
-        buffer.set_flags(flags);
-
-        let glyph_buffer = {
-            let plan = &self.plan.as_ref().unwrap().plan;
-            rustybuzz::shape_with_plan(&face.face, plan, buffer)
-        };
-        self.copy_glyphs(&glyph_buffer, request.range.clone());
-        self.buffer = Some(glyph_buffer.clear());
-
-        let (x_advance, y_advance) = self.glyphs.iter().fold((0, 0), |sum, glyph| {
-            (sum.0 + glyph.x_advance, sum.1 + glyph.y_advance)
-        });
-        Ok(ShapedRun {
-            text: request.range,
-            direction: request.direction,
-            glyphs: &self.glyphs,
-            x_advance,
-            y_advance,
-        })
-    }
-
-    fn prepare_plan(
-        &mut self,
-        face: &ShapingFace<'_>,
+pub trait Typeface {
+    fn key(&self) -> FaceKey;
+    fn metrics(&self) -> Result<FontMetrics, TypefaceError>;
+    fn covers(&self, grapheme: &str) -> Result<bool, TypefaceError>;
+    fn shape_into(
+        &self,
         request: &ShapeRequest<'_>,
-    ) -> Result<(), ShapeError> {
-        if self
-            .plan
-            .as_ref()
-            .is_some_and(|plan| plan.matches(face.key, request))
-        {
-            return Ok(());
+        output: &mut [ShapedGlyph],
+    ) -> Result<usize, ShapeError>;
+}
+
+pub trait GlyphSource {
+    fn key(&self) -> FaceKey;
+    fn metrics(&self) -> Result<FontMetrics, TypefaceError>;
+    fn glyph_for(&self, character: char) -> Result<Option<GlyphId>, TypefaceError>;
+    fn glyph_advance(&self, glyph: GlyphId) -> Result<FlowPoint, TypefaceError>;
+
+    fn kerning(&self, _left: GlyphId, _right: GlyphId) -> Result<i32, TypefaceError> {
+        Ok(0)
+    }
+}
+
+pub struct SimpleTypeface<'a, T> {
+    source: &'a T,
+}
+
+impl<'a, T> SimpleTypeface<'a, T> {
+    pub const fn new(source: &'a T) -> Self {
+        Self { source }
+    }
+}
+
+impl<T> Typeface for SimpleTypeface<'_, T>
+where
+    T: GlyphSource,
+{
+    fn key(&self) -> FaceKey {
+        self.source.key()
+    }
+
+    fn metrics(&self) -> Result<FontMetrics, TypefaceError> {
+        self.source.metrics()
+    }
+
+    fn covers(&self, grapheme: &str) -> Result<bool, TypefaceError> {
+        let mut characters = grapheme.chars();
+        let Some(character) = characters.next() else {
+            return Ok(false);
+        };
+        if characters.next().is_some() {
+            return Ok(false);
         }
-        let language = request
-            .language
-            .map(Language::from_str)
-            .transpose()
-            .map_err(|_| ShapeError::InvalidLanguage)?;
-        let features = request
-            .features
-            .iter()
-            .map(|feature| {
-                Feature::new(
-                    rustybuzz::ttf_parser::Tag::from_bytes(&feature.tag),
-                    feature.value,
-                    feature.range.clone(),
-                )
-            })
-            .collect::<Vec<_>>();
-        let plan = ShapePlan::new(
-            &face.face,
-            rustybuzz_direction(request.direction),
-            Some(rustybuzz_script(request.script)),
-            language.as_ref(),
-            &features,
-        );
-        self.plan = Some(CachedPlan {
-            face: face.key,
-            direction: request.direction,
-            script: request.script,
-            language,
-            features: request.features.to_vec(),
-            plan,
-        });
-        Ok(())
+        Ok(self.source.glyph_for(character)?.is_some())
     }
 
-    fn copy_glyphs(&mut self, buffer: &GlyphBuffer, text: Range<usize>) {
-        self.cluster_starts.clear();
-        self.cluster_starts.extend(
-            buffer
-                .glyph_infos()
-                .iter()
-                .map(|glyph| text.start + glyph.cluster as usize),
-        );
-        self.cluster_starts.push(text.end);
-        self.cluster_starts.sort_unstable();
-        self.cluster_starts.dedup();
+    fn shape_into(
+        &self,
+        request: &ShapeRequest<'_>,
+        output: &mut [ShapedGlyph],
+    ) -> Result<usize, ShapeError> {
+        validate_request(request)?;
+        if matches!(request.script, Script::Arabic | Script::Devanagari) {
+            return Err(ShapeError::UnsupportedScript {
+                script: request.script,
+            });
+        }
+        let kern = kerning_enabled(request.features)?;
+        let text = &request.text[request.range.clone()];
+        let required = graphemes(text).count();
+        if output.len() < required {
+            return Err(ShapeError::InsufficientCapacity { required });
+        }
 
-        self.glyphs.clear();
-        self.glyphs.extend(
-            buffer
-                .glyph_infos()
-                .iter()
-                .zip(buffer.glyph_positions())
-                .map(|(info, position)| {
-                    let cluster_start = text.start + info.cluster as usize;
-                    let cluster_index = self.cluster_starts.binary_search(&cluster_start).unwrap();
-                    ShapedGlyph {
-                        glyph_id: info.glyph_id as u16,
-                        cluster: cluster_start..self.cluster_starts[cluster_index + 1],
-                        x_advance: position.x_advance,
-                        y_advance: position.y_advance,
-                        x_offset: position.x_offset,
-                        y_offset: position.y_offset,
-                        unsafe_to_break: info.unsafe_to_break(),
-                    }
-                }),
-        );
-    }
-}
-
-struct CachedPlan {
-    face: FaceKey,
-    direction: Direction,
-    script: Script,
-    language: Option<Language>,
-    features: Vec<FontFeature>,
-    plan: ShapePlan,
-}
-
-impl CachedPlan {
-    fn matches(&self, face: FaceKey, request: &ShapeRequest<'_>) -> bool {
-        self.face == face
-            && self.direction == request.direction
-            && self.script == request.script
-            && self.features == request.features
-            && match (&self.language, request.language) {
-                (None, None) => true,
-                (Some(cached), Some(requested)) => cached.as_str().eq_ignore_ascii_case(requested),
-                _ => false,
+        let mut previous: Option<(usize, GlyphId)> = None;
+        for (logical_index, cluster) in graphemes(text).enumerate() {
+            let mut characters = cluster.text.chars();
+            let character = characters.next().unwrap();
+            if characters.next().is_some() {
+                return Err(ShapeError::UnsupportedCluster {
+                    offset: request.range.start + cluster.range.start,
+                });
             }
+            let glyph_id = self
+                .source
+                .glyph_for(character)?
+                .ok_or(ShapeError::MissingGlyph {
+                    offset: request.range.start + cluster.range.start,
+                })?;
+            let output_index = match request.direction {
+                Direction::LeftToRight => logical_index,
+                Direction::RightToLeft => required - logical_index - 1,
+            };
+            let start = request.range.start + cluster.range.start;
+            let end = request.range.start + cluster.range.end;
+            output[output_index] = ShapedGlyph {
+                glyph_id,
+                flags: 0,
+                cluster: TextRange::new(start as u32, end as u32),
+                advance: self.source.glyph_advance(glyph_id)?,
+                offset: FlowPoint::default(),
+            };
+            if kern {
+                if let Some((previous_index, previous_glyph)) = previous {
+                    output[previous_index].advance.x +=
+                        self.source.kerning(previous_glyph, glyph_id)?;
+                }
+                previous = Some((output_index, glyph_id));
+            }
+        }
+        Ok(required)
     }
 }
 
@@ -304,22 +299,22 @@ fn validate_request(request: &ShapeRequest<'_>) -> Result<(), ShapeError> {
     {
         return Err(ShapeError::InvalidTextRange);
     }
-    if request.range.len() > u32::MAX as usize {
+    if request.text.len() > u32::MAX as usize {
         return Err(ShapeError::TextTooLong);
     }
     Ok(())
 }
 
-fn rustybuzz_direction(direction: Direction) -> rustybuzz::Direction {
-    match direction {
-        Direction::LeftToRight => rustybuzz::Direction::LeftToRight,
-        Direction::RightToLeft => rustybuzz::Direction::RightToLeft,
+fn kerning_enabled(features: &[FontFeature]) -> Result<bool, ShapeError> {
+    let mut enabled = true;
+    for feature in features {
+        if feature.tag == *b"kern" {
+            enabled = feature.value != 0;
+        } else {
+            return Err(ShapeError::UnsupportedFeature { tag: feature.tag });
+        }
     }
-}
-
-fn rustybuzz_script(script: Script) -> rustybuzz::Script {
-    let tag = rustybuzz::ttf_parser::Tag::from_bytes(&script.as_iso15924_tag().to_be_bytes());
-    rustybuzz::Script::from_iso15924_tag(tag).unwrap_or(rustybuzz::script::UNKNOWN)
+    Ok(enabled)
 }
 
 #[cfg(test)]
@@ -327,88 +322,99 @@ mod tests {
     use super::*;
     use std::prelude::v1::*;
 
-    const FONT: &[u8] = include_bytes!("../tests/assets/roboto-latin-subset.ttf");
+    struct MockFont;
 
-    fn face() -> ShapingFace<'static> {
-        ShapingFace::new(FaceKey::new(7), FONT, 0).unwrap()
-    }
+    impl GlyphSource for MockFont {
+        fn key(&self) -> FaceKey {
+            FaceKey::new(4)
+        }
 
-    #[test]
-    fn shapes_ligatures_with_global_cluster_ranges() {
-        let face = face();
-        let mut workspace = ShapingWorkspace::new();
-        let text = "office";
-        let run = workspace
-            .shape(
-                &face,
-                ShapeRequest::new(text, 0..text.len(), Direction::LeftToRight, Script::Latin),
+        fn metrics(&self) -> Result<FontMetrics, TypefaceError> {
+            Ok(FontMetrics {
+                units_per_em: 1000,
+                ascender: 800,
+                descender: -200,
+                line_gap: 0,
+            })
+        }
+
+        fn glyph_for(&self, character: char) -> Result<Option<GlyphId>, TypefaceError> {
+            Ok(character
+                .is_ascii()
+                .then_some(GlyphId::new(character as u16)))
+        }
+
+        fn glyph_advance(&self, _glyph: GlyphId) -> Result<FlowPoint, TypefaceError> {
+            Ok(FlowPoint { x: 600, y: 0 })
+        }
+
+        fn kerning(&self, left: GlyphId, right: GlyphId) -> Result<i32, TypefaceError> {
+            Ok(
+                if left.value() == b'A' as u16 && right.value() == b'V' as u16 {
+                    -80
+                } else {
+                    0
+                },
             )
-            .unwrap();
-
-        assert!(run.glyphs.len() < text.chars().count());
-        assert!(run.glyphs.iter().any(|glyph| glyph.cluster.len() > 1));
-        assert!(!run.is_safe_break(2));
+        }
     }
 
     #[test]
-    fn feature_override_disables_standard_ligatures() {
-        let face = face();
-        let mut workspace = ShapingWorkspace::new();
-        let text = "office";
-        let features = [FontFeature::new(*b"liga", 0)];
-        let run = workspace
-            .shape(
-                &face,
-                ShapeRequest::new(text, 0..text.len(), Direction::LeftToRight, Script::Latin)
-                    .with_features(&features),
-            )
-            .unwrap();
-
-        assert_eq!(run.glyphs.len(), text.chars().count());
-    }
-
-    #[test]
-    fn kerning_is_enabled_by_default() {
-        let face = face();
-        let mut workspace = ShapingWorkspace::new();
+    fn shapes_into_caller_storage_with_kerning() {
+        let face = SimpleTypeface::new(&MockFont);
         let text = "AV";
-        let kerned = workspace
-            .shape(
-                &face,
-                ShapeRequest::new(text, 0..text.len(), Direction::LeftToRight, Script::Latin),
-            )
-            .unwrap()
-            .x_advance;
-        let features = [FontFeature::new(*b"kern", 0)];
-        let unkerned = workspace
-            .shape(
-                &face,
-                ShapeRequest::new(text, 0..text.len(), Direction::LeftToRight, Script::Latin)
-                    .with_features(&features),
-            )
-            .unwrap()
-            .x_advance;
-
-        assert!(kerned < unkerned);
-    }
-
-    #[test]
-    fn context_ranges_keep_global_offsets() {
-        let face = face();
-        let mut workspace = ShapingWorkspace::new();
-        let text = "AV office";
-        let run = workspace
-            .shape(
-                &face,
-                ShapeRequest::new(text, 3..text.len(), Direction::LeftToRight, Script::Latin),
+        let mut output = [ShapedGlyph::default(); 2];
+        let count = face
+            .shape_into(
+                &ShapeRequest::new(text, 0..text.len(), Direction::LeftToRight, Script::Latin),
+                &mut output,
             )
             .unwrap();
 
-        assert_eq!(run.text, 3..text.len());
-        assert!(run.glyphs.iter().all(|glyph| glyph.cluster.start >= 3));
-        assert!(run
-            .glyphs
-            .iter()
-            .all(|glyph| glyph.cluster.end <= text.len()));
+        assert_eq!(count, 2);
+        assert_eq!(output[0].advance.x, 520);
+        assert_eq!(output[1].advance.x, 600);
+    }
+
+    #[test]
+    fn reverses_rtl_output_without_heap_storage() {
+        let face = SimpleTypeface::new(&MockFont);
+        let text = "abc";
+        let mut output = [ShapedGlyph::default(); 3];
+        face.shape_into(
+            &ShapeRequest::new(text, 0..text.len(), Direction::RightToLeft, Script::Hebrew),
+            &mut output,
+        )
+        .unwrap();
+
+        assert_eq!(output[0].glyph_id(), GlyphId::new(b'c' as u16));
+        assert_eq!(output[2].glyph_id(), GlyphId::new(b'a' as u16));
+    }
+
+    #[test]
+    fn reports_capacity_and_unsupported_clusters() {
+        let face = SimpleTypeface::new(&MockFont);
+        let mut output = [ShapedGlyph::default(); 1];
+        let text = "ab";
+        assert_eq!(
+            face.shape_into(
+                &ShapeRequest::new(text, 0..text.len(), Direction::LeftToRight, Script::Latin,),
+                &mut output,
+            ),
+            Err(ShapeError::InsufficientCapacity { required: 2 })
+        );
+        let combined = "a\u{301}";
+        assert_eq!(
+            face.shape_into(
+                &ShapeRequest::new(
+                    combined,
+                    0..combined.len(),
+                    Direction::LeftToRight,
+                    Script::Latin,
+                ),
+                &mut output,
+            ),
+            Err(ShapeError::UnsupportedCluster { offset: 0 })
+        );
     }
 }

@@ -5,17 +5,9 @@ edition = "2021"
 
 [features]
 default = []
-unicode = [
-    "dep:unicode-linebreak",
-    "dep:unicode-script",
-    "dep:unicode-segmentation",
-]
-bidi = ["unicode", "dep:unicode-bidi"]
-shaping = ["bidi", "dep:rustybuzz"]
+alloc = []
+unicode = []
+bidi = ["unicode"]
+shaping = ["bidi"]
 
 [dependencies]
-rustybuzz = { version = "0.20.1", optional = true, default-features = false }
-unicode-bidi = { version = "0.3.18", optional = true, default-features = false, features = ["hardcoded-data"] }
-unicode-linebreak = { version = "0.1.5", optional = true }
-unicode-script = { version = "0.5.8", optional = true }
-unicode-segmentation = { version = "1.13.3", optional = true }

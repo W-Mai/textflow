@@ -1,6 +1,6 @@
 #![no_std]
 
-#[cfg(feature = "bidi")]
+#[cfg(feature = "alloc")]
 extern crate alloc;
 #[cfg(test)]
 extern crate std;

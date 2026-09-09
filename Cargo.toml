@@ -5,7 +5,7 @@ edition = "2021"
 
 [features]
 default = []
-alloc = []
+alloc = ["shaping"]
 unicode = []
 bidi = ["unicode"]
 shaping = ["bidi"]

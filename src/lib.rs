@@ -20,6 +20,8 @@ pub mod shaping;
 pub mod tests;
 #[cfg(feature = "unicode")]
 pub mod unicode;
+#[cfg(all(feature = "alloc", feature = "shaping"))]
+pub mod workspace;
 
 #[allow(dead_code)]
 struct TextFlowContext {}

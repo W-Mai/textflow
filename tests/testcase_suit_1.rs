@@ -1,6 +1,6 @@
 macro_rules! assert_line {
     ($text: expr, $line:expr, $expected:expr) => {{
-        let result = $line.map(|line| line.slices($text));
+        let result = $line.map(|line| line.text());
         assert_eq!(result, $expected);
     }};
 }
@@ -11,7 +11,7 @@ macro_rules! assert_flow {
         let expected = &[$($expected),+];
         let mut count = 0;
         for (index, line) in textflow::TextFlow::new(text, $max_width).enumerate() {
-            assert_eq!(line.slices(text), expected[index], "line {index}");
+            assert_eq!(line.text(), expected[index], "line {index}");
             count += 1;
         }
         assert_eq!(count, expected.len(), "line count");

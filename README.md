@@ -11,7 +11,7 @@ use textflow::TextFlow;
 
 let text = "A small UI can still set type well.";
 let lines = TextFlow::new(text, 12)
-    .map(|line| line.slices(text))
+    .map(|line| line.text())
     .collect::<Vec<_>>();
 
 assert_eq!(lines, ["A small UI", "can still", "set type", "well."]);

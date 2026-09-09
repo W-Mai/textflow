@@ -5,9 +5,9 @@ extern crate alloc;
 #[cfg(test)]
 extern crate std;
 
-use crate::line::Line;
+use crate::line::Lines;
 
-pub use crate::line::{LineInfo, LinePosition};
+pub use crate::line::Line;
 
 #[cfg(feature = "shaping")]
 use crate::bidi::BaseDirection;
@@ -41,7 +41,7 @@ pub struct TextFlow<'a> {
     max_width: usize,
     line_height: usize,
     line_spacing: usize,
-    lines: Line<'a>,
+    lines: Lines<'a>,
     #[cfg(feature = "shaping")]
     base_direction: BaseDirection,
     #[cfg(feature = "shaping")]
@@ -57,7 +57,7 @@ impl<'a> TextFlow<'a> {
             max_width,
             line_height: 0,
             line_spacing: 0,
-            lines: Line::new("", 0, 4),
+            lines: Lines::new("", 0, 4),
             #[cfg(feature = "shaping")]
             base_direction: BaseDirection::Auto,
             #[cfg(feature = "shaping")]
@@ -66,7 +66,7 @@ impl<'a> TextFlow<'a> {
             origin: FlowPoint { x: 0, y: 0 },
         };
 
-        flow.lines = Line::new(flow.text, flow.max_width, 4);
+        flow.lines = Lines::new(flow.text, flow.max_width, 4);
 
         flow
     }
@@ -109,13 +109,12 @@ impl<'a> TextFlow<'a> {
     }
 }
 
-impl Iterator for TextFlow<'_> {
-    type Item = LineInfo;
+impl<'a> Iterator for TextFlow<'a> {
+    type Item = Line<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut line = self.lines.next()?;
-        line.line_height = self.line_height;
-        line.line_spacing = self.line_spacing;
+        line.set_metrics(self.line_height, self.line_spacing);
         Some(line)
     }
 }

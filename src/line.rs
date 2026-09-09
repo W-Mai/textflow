@@ -1,37 +1,51 @@
 use crate::properties::{display_width, is_open_punctuation};
 use crate::unicode::{graphemes, line_breaks, LineBreakKind};
+use core::ops::Range;
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct LinePosition {
-    pub start: usize,
-    pub end: usize,
-    pub brk: usize,
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Line<'a> {
+    text: &'a str,
+    range: Range<usize>,
+    width: usize,
+    height: usize,
+    spacing: usize,
 }
 
-#[derive(Clone, Debug)]
-pub struct LineInfo {
-    pub position: LinePosition,
-    pub line_height: usize,
-    pub line_spacing: usize,
-    pub real_width: usize,
-    pub ideal_width: usize,
-}
+impl<'a> Line<'a> {
+    pub const fn text(&self) -> &'a str {
+        self.text
+    }
 
-impl LineInfo {
-    pub fn slices<'a>(&self, string: &'a str) -> &'a str {
-        string[self.position.start..self.position.brk.min(self.position.end)]
-            .trim_end_matches([' ', '\t', '\r', '\n'])
+    pub fn range(&self) -> Range<usize> {
+        self.range.clone()
+    }
+
+    pub const fn width(&self) -> usize {
+        self.width
+    }
+
+    pub const fn height(&self) -> usize {
+        self.height
+    }
+
+    pub const fn spacing(&self) -> usize {
+        self.spacing
+    }
+
+    pub(crate) fn set_metrics(&mut self, height: usize, spacing: usize) {
+        self.height = height;
+        self.spacing = spacing;
     }
 }
 
-pub(crate) struct Line<'a> {
+pub(crate) struct Lines<'a> {
     text: &'a str,
     cursor: usize,
     max_width: usize,
     tab_width: usize,
 }
 
-impl<'a> Line<'a> {
+impl<'a> Lines<'a> {
     pub(crate) const fn new(text: &'a str, max_width: usize, tab_width: usize) -> Self {
         Self {
             text,
@@ -55,25 +69,21 @@ impl<'a> Line<'a> {
         start
     }
 
-    fn emit(&mut self, start: usize, candidate: Candidate) -> LineInfo {
-        let end = start + candidate.offset;
-        self.cursor = end;
-        LineInfo {
-            position: LinePosition {
-                start,
-                end,
-                brk: end,
-            },
-            line_height: 0,
-            line_spacing: 0,
-            real_width: candidate.width,
-            ideal_width: candidate.width,
+    fn emit(&mut self, start: usize, candidate: Candidate) -> Line<'a> {
+        self.cursor = start + candidate.offset;
+        let end = start + candidate.visible_offset;
+        Line {
+            text: &self.text[start..end],
+            range: start..end,
+            width: candidate.visible_width,
+            height: 0,
+            spacing: 0,
         }
     }
 }
 
-impl Iterator for Line<'_> {
-    type Item = LineInfo;
+impl<'a> Iterator for Lines<'a> {
+    type Item = Line<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let start = self.next_start();
@@ -90,13 +100,16 @@ impl Iterator for Line<'_> {
         let mut last_open = None;
         let mut only_open = true;
         let mut previous_open = false;
+        let mut visible_offset = 0;
+        let mut visible_width = 0;
 
         for cluster in graphemes(remaining) {
             let open = cluster.text.chars().next().is_some_and(is_open_punctuation);
             if open && !previous_open && !only_open {
                 last_open = Some(Candidate {
                     offset: cluster.range.start,
-                    width,
+                    visible_offset,
+                    visible_width,
                 });
             }
             if !open {
@@ -118,9 +131,14 @@ impl Iterator for Line<'_> {
             }
 
             width = next_width;
+            if !cluster.text.chars().all(char::is_whitespace) {
+                visible_offset = cluster.range.end;
+                visible_width = width;
+            }
             let candidate = Candidate {
                 offset: cluster.range.end,
-                width,
+                visible_offset,
+                visible_width,
             };
             if width <= self.max_width || last_fit.is_none() {
                 last_fit = Some(candidate);
@@ -155,7 +173,8 @@ impl Iterator for Line<'_> {
 #[derive(Clone, Copy)]
 struct Candidate {
     offset: usize,
-    width: usize,
+    visible_offset: usize,
+    visible_width: usize,
 }
 
 fn latest(left: Option<Candidate>, right: Option<Candidate>) -> Option<Candidate> {
@@ -175,9 +194,7 @@ mod tests {
     use std::prelude::v1::*;
 
     fn slices(text: &str, width: usize) -> Vec<&str> {
-        Line::new(text, width, 4)
-            .map(|line| line.slices(text))
-            .collect()
+        Lines::new(text, width, 4).map(|line| line.text()).collect()
     }
 
     #[test]
@@ -186,12 +203,12 @@ mod tests {
 
         for width in 0..=text.len() {
             let mut rendered = String::new();
-            let mut previous_break = 0;
-            for line in Line::new(text, width, 4) {
-                assert!(line.position.brk > previous_break);
-                rendered.push_str(line.slices(text));
-                previous_break = line.position.brk;
+            let mut count = 0;
+            for line in Lines::new(text, width, 4) {
+                rendered.push_str(line.text());
+                count += 1;
             }
+            assert!(count <= text.chars().count());
             assert_eq!(
                 rendered
                     .chars()
@@ -208,5 +225,14 @@ mod tests {
     fn respects_graphemes_and_mandatory_breaks() {
         assert_eq!(slices("a\u{301}b", 1), ["a\u{301}", "b"]);
         assert_eq!(slices("a\r\n\r\nb", 8), ["a", "", "b"]);
+    }
+
+    #[test]
+    fn reports_visible_range_and_width() {
+        let line = Lines::new("ab  cd", 3, 4).next().unwrap();
+
+        assert_eq!(line.text(), "ab");
+        assert_eq!(line.range(), 0..2);
+        assert_eq!(line.width(), 2);
     }
 }

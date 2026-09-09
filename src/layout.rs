@@ -1,7 +1,7 @@
 use crate::bidi::BidiText;
 use crate::shaping::{
-    FaceKey, FontFeature, ShapeError, ShapeRequest, ShapedGlyph, ShapedRun, TextRange, Typeface,
-    TypefaceError,
+    CaretStop, FaceKey, FlowPoint, FontFeature, LineEdges, PositionError, PositionedGlyph,
+    ShapeError, ShapeRequest, ShapedGlyph, ShapedRun, TextRange, Typeface, TypefaceError,
 };
 use crate::unicode::{graphemes, line_breaks, script_runs, LineBreakKind, LineBreaks, Script};
 use core::iter::Peekable;
@@ -48,8 +48,13 @@ pub enum LayoutError {
     InsufficientRunCapacity { required: usize },
     InsufficientGlyphCapacity { minimum: usize },
     InsufficientLineCapacity { required: usize },
+    InsufficientScratchCapacity { minimum: usize },
+    InsufficientPositionedCapacity { minimum: usize },
+    InsufficientCaretCapacity { minimum: usize },
     InvalidRun,
+    InvalidTypefaceOutput { run: usize },
     InvalidWidth,
+    InvalidLineHeight,
     CoordinateOverflow,
     Typeface(TypefaceError),
     Shape { run: usize, error: ShapeError },
@@ -168,8 +173,11 @@ impl<'a> LogicalRuns<'a> {
             let end = glyph_count
                 .checked_add(count)
                 .ok_or(LayoutError::InvalidRun)?;
-            if end > u32::MAX as usize {
-                return Err(LayoutError::InvalidRun);
+            if end > glyphs.len()
+                || end > u32::MAX as usize
+                || !valid_shaped_output(&request, &glyphs[glyph_count..end])
+            {
+                return Err(LayoutError::InvalidTypefaceOutput { run: run_index });
             }
             runs[run_index] = GlyphRun {
                 text: logical.text,
@@ -183,6 +191,173 @@ impl<'a> LogicalRuns<'a> {
             text: self.text,
             glyphs: &glyphs[..glyph_count],
             runs: &runs[..self.runs.len()],
+        })
+    }
+
+    pub fn layout_into<'output>(
+        &self,
+        text: &str,
+        typefaces: &[&dyn Typeface],
+        features: &[FontFeature],
+        broken: &BrokenLines<'_>,
+        options: LayoutOptions,
+        buffers: LayoutBuffers<'output>,
+    ) -> Result<ParagraphLayout<'output>, LayoutError> {
+        if options.line_height < 0 {
+            return Err(LayoutError::InvalidLineHeight);
+        }
+        if buffers.lines.len() < broken.lines.len() {
+            return Err(LayoutError::InsufficientLineCapacity {
+                required: broken.lines.len(),
+            });
+        }
+        let required_runs = broken.lines.iter().try_fold(0usize, |count, line| {
+            let line_runs = self
+                .runs
+                .iter()
+                .filter(|run| intersection(run.text, line.text).is_some())
+                .count();
+            count
+                .checked_add(line_runs)
+                .ok_or(LayoutError::CoordinateOverflow)
+        })?;
+        if required_runs > u32::MAX as usize || broken.lines.len() > u32::MAX as usize {
+            return Err(LayoutError::CoordinateOverflow);
+        }
+        if buffers.runs.len() < required_runs {
+            return Err(LayoutError::InsufficientRunCapacity {
+                required: required_runs,
+            });
+        }
+
+        let mut run_count: usize = 0;
+        let mut glyph_count: usize = 0;
+        let mut caret_count: usize = 0;
+        for (line_index, broken_line) in broken.lines.iter().enumerate() {
+            let line_run_start = run_count;
+            for logical in self.runs {
+                let Some(text_range) = intersection(logical.text, broken_line.text) else {
+                    continue;
+                };
+                let Some(typeface) = typefaces.get(logical.face_index()) else {
+                    return Err(LayoutError::InvalidRun);
+                };
+                buffers.runs[run_count] = VisualRun {
+                    text: text_range,
+                    glyphs: TextRange::new(0, 0),
+                    face: typeface.key(),
+                    face_index: logical.face,
+                    script: logical.script,
+                    bidi_level: logical.bidi_level,
+                };
+                run_count += 1;
+            }
+            reorder_visual_runs(&mut buffers.runs[line_run_start..run_count]);
+
+            let line_number =
+                i32::try_from(line_index).map_err(|_| LayoutError::CoordinateOverflow)?;
+            let y = options
+                .line_height
+                .checked_mul(line_number)
+                .and_then(|offset| options.origin.y.checked_add(offset))
+                .ok_or(LayoutError::CoordinateOverflow)?;
+            let line_origin = FlowPoint {
+                x: options.origin.x,
+                y,
+            };
+            let line_glyph_start = glyph_count;
+            let line_caret_start = caret_count;
+            let mut pen = line_origin;
+            for run_index in line_run_start..run_count {
+                let mut visual = buffers.runs[run_index];
+                let Some(typeface) = typefaces.get(visual.face_index as usize) else {
+                    return Err(LayoutError::InvalidRun);
+                };
+                let edges = match (
+                    visual.text.start == broken_line.text.start,
+                    visual.text.end == broken_line.text.end,
+                ) {
+                    (true, true) => LineEdges::BOTH,
+                    (true, false) => LineEdges::START,
+                    (false, true) => LineEdges::END,
+                    (false, false) => LineEdges::NONE,
+                };
+                let request = ShapeRequest::new(
+                    text,
+                    visual.text.start as usize..visual.text.end as usize,
+                    crate::bidi::Direction::from_level(visual.bidi_level),
+                    visual.script,
+                )
+                .with_features(features)
+                .with_line_edges(edges);
+                let count = match typeface.shape_into(&request, buffers.scratch) {
+                    Ok(count) => count,
+                    Err(ShapeError::InsufficientCapacity { required }) => {
+                        return Err(LayoutError::InsufficientScratchCapacity { minimum: required });
+                    }
+                    Err(error) => {
+                        return Err(LayoutError::Shape {
+                            run: run_index,
+                            error,
+                        });
+                    }
+                };
+                if count > buffers.scratch.len()
+                    || !valid_shaped_output(&request, &buffers.scratch[..count])
+                {
+                    return Err(LayoutError::InvalidTypefaceOutput { run: run_index });
+                }
+                let glyph_end = glyph_count
+                    .checked_add(count)
+                    .ok_or(LayoutError::CoordinateOverflow)?;
+                if glyph_end > u32::MAX as usize {
+                    return Err(LayoutError::CoordinateOverflow);
+                }
+                if glyph_end > buffers.glyphs.len() {
+                    return Err(LayoutError::InsufficientPositionedCapacity { minimum: glyph_end });
+                }
+                let shaped = ShapedRun::new(
+                    visual.face,
+                    visual.text,
+                    visual.bidi_level,
+                    &buffers.scratch[..count],
+                );
+                let positioned = shaped
+                    .position_into(pen, &mut buffers.glyphs[glyph_count..glyph_end])
+                    .map_err(|error| position_error(error, glyph_count))?;
+                pen = positioned.end();
+                let carets = positioned
+                    .carets_into(&mut buffers.carets[caret_count..])
+                    .map_err(|error| caret_error(error, caret_count))?;
+                caret_count = caret_count
+                    .checked_add(carets.len())
+                    .ok_or(LayoutError::CoordinateOverflow)?;
+                if caret_count > u32::MAX as usize {
+                    return Err(LayoutError::CoordinateOverflow);
+                }
+                visual.glyphs = TextRange::new(glyph_count as u32, glyph_end as u32);
+                buffers.runs[run_index] = visual;
+                glyph_count = glyph_end;
+            }
+            let line_end = pen
+                .x
+                .checked_sub(line_origin.x)
+                .ok_or(LayoutError::CoordinateOverflow)?;
+            buffers.lines[line_index] = LayoutLine {
+                text: broken_line.text,
+                runs: TextRange::new(line_run_start as u32, run_count as u32),
+                glyphs: TextRange::new(line_glyph_start as u32, glyph_count as u32),
+                carets: TextRange::new(line_caret_start as u32, caret_count as u32),
+                origin: line_origin,
+                advance: line_end,
+            };
+        }
+
+        Ok(ParagraphLayout {
+            lines: &buffers.lines[..broken.lines.len()],
+            runs: &buffers.runs[..run_count],
+            glyphs: &buffers.glyphs[..glyph_count],
+            carets: &buffers.carets[..caret_count],
         })
     }
 }
@@ -561,6 +736,242 @@ impl<'a> LineWriter<'a> {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct LayoutOptions {
+    pub origin: FlowPoint,
+    pub line_height: i32,
+}
+
+impl LayoutOptions {
+    pub const fn new(line_height: i32) -> Self {
+        Self {
+            origin: FlowPoint { x: 0, y: 0 },
+            line_height,
+        }
+    }
+
+    pub const fn with_origin(mut self, origin: FlowPoint) -> Self {
+        self.origin = origin;
+        self
+    }
+}
+
+pub struct LayoutBuffers<'a> {
+    pub scratch: &'a mut [ShapedGlyph],
+    pub glyphs: &'a mut [PositionedGlyph],
+    pub runs: &'a mut [VisualRun],
+    pub lines: &'a mut [LayoutLine],
+    pub carets: &'a mut [CaretStop],
+}
+
+impl<'a> LayoutBuffers<'a> {
+    pub fn new(
+        scratch: &'a mut [ShapedGlyph],
+        glyphs: &'a mut [PositionedGlyph],
+        runs: &'a mut [VisualRun],
+        lines: &'a mut [LayoutLine],
+        carets: &'a mut [CaretStop],
+    ) -> Self {
+        Self {
+            scratch,
+            glyphs,
+            runs,
+            lines,
+            carets,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct VisualRun {
+    text: TextRange,
+    glyphs: TextRange,
+    face: FaceKey,
+    face_index: u16,
+    script: Script,
+    bidi_level: u8,
+}
+
+impl VisualRun {
+    pub const fn empty() -> Self {
+        Self {
+            text: TextRange::new(0, 0),
+            glyphs: TextRange::new(0, 0),
+            face: FaceKey::new(0),
+            face_index: 0,
+            script: Script::Common,
+            bidi_level: 0,
+        }
+    }
+
+    pub const fn text(self) -> TextRange {
+        self.text
+    }
+
+    pub const fn glyphs(self) -> TextRange {
+        self.glyphs
+    }
+
+    pub const fn face(self) -> FaceKey {
+        self.face
+    }
+
+    pub const fn bidi_level(self) -> u8 {
+        self.bidi_level
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct LayoutLine {
+    text: TextRange,
+    runs: TextRange,
+    glyphs: TextRange,
+    carets: TextRange,
+    origin: FlowPoint,
+    advance: i32,
+}
+
+impl LayoutLine {
+    pub const fn empty() -> Self {
+        Self {
+            text: TextRange::new(0, 0),
+            runs: TextRange::new(0, 0),
+            glyphs: TextRange::new(0, 0),
+            carets: TextRange::new(0, 0),
+            origin: FlowPoint { x: 0, y: 0 },
+            advance: 0,
+        }
+    }
+
+    pub const fn text(self) -> TextRange {
+        self.text
+    }
+
+    pub const fn runs(self) -> TextRange {
+        self.runs
+    }
+
+    pub const fn glyphs(self) -> TextRange {
+        self.glyphs
+    }
+
+    pub const fn carets(self) -> TextRange {
+        self.carets
+    }
+
+    pub const fn origin(self) -> FlowPoint {
+        self.origin
+    }
+
+    pub const fn advance(self) -> i32 {
+        self.advance
+    }
+}
+
+pub struct ParagraphLayout<'a> {
+    lines: &'a [LayoutLine],
+    runs: &'a [VisualRun],
+    glyphs: &'a [PositionedGlyph],
+    carets: &'a [CaretStop],
+}
+
+impl ParagraphLayout<'_> {
+    pub const fn lines(&self) -> &[LayoutLine] {
+        self.lines
+    }
+
+    pub const fn runs(&self) -> &[VisualRun] {
+        self.runs
+    }
+
+    pub const fn glyphs(&self) -> &[PositionedGlyph] {
+        self.glyphs
+    }
+
+    pub const fn carets(&self) -> &[CaretStop] {
+        self.carets
+    }
+}
+
+fn intersection(left: TextRange, right: TextRange) -> Option<TextRange> {
+    let start = left.start.max(right.start);
+    let end = left.end.min(right.end);
+    (start < end).then_some(TextRange::new(start, end))
+}
+
+fn valid_shaped_output(request: &ShapeRequest<'_>, glyphs: &[ShapedGlyph]) -> bool {
+    let mut previous = None;
+    glyphs.iter().all(|glyph| {
+        let start = glyph.cluster.start as usize;
+        let end = glyph.cluster.end as usize;
+        let ordered = match (request.direction, previous) {
+            (_, None) => true,
+            (crate::bidi::Direction::LeftToRight, Some(previous)) => {
+                glyph.cluster.start >= previous
+            }
+            (crate::bidi::Direction::RightToLeft, Some(previous)) => {
+                glyph.cluster.start <= previous
+            }
+        };
+        previous = Some(glyph.cluster.start);
+        start < end
+            && start >= request.range.start
+            && end <= request.range.end
+            && request.text.is_char_boundary(start)
+            && request.text.is_char_boundary(end)
+            && ordered
+    })
+}
+
+fn reorder_visual_runs(runs: &mut [VisualRun]) {
+    let max_level = runs.iter().map(|run| run.bidi_level).max().unwrap_or(0);
+    let min_odd = runs
+        .iter()
+        .filter(|run| run.bidi_level & 1 == 1)
+        .map(|run| run.bidi_level)
+        .min();
+    let Some(min_odd) = min_odd else {
+        return;
+    };
+    for level in (min_odd..=max_level).rev() {
+        let mut start = 0;
+        while start < runs.len() {
+            if runs[start].bidi_level < level {
+                start += 1;
+                continue;
+            }
+            let mut end = start + 1;
+            while end < runs.len() && runs[end].bidi_level >= level {
+                end += 1;
+            }
+            runs[start..end].reverse();
+            start = end;
+        }
+    }
+}
+
+fn position_error(error: PositionError, current: usize) -> LayoutError {
+    match error {
+        PositionError::InsufficientCapacity { required } => {
+            LayoutError::InsufficientPositionedCapacity {
+                minimum: current.saturating_add(required),
+            }
+        }
+        PositionError::CoordinateOverflow => LayoutError::CoordinateOverflow,
+    }
+}
+
+fn caret_error(error: PositionError, current: usize) -> LayoutError {
+    match error {
+        PositionError::InsufficientCapacity { required } => {
+            LayoutError::InsufficientCaretCapacity {
+                minimum: current.saturating_add(required),
+            }
+        }
+        PositionError::CoordinateOverflow => LayoutError::CoordinateOverflow,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -589,6 +1000,73 @@ mod tests {
 
         fn glyph_advance(&self, _glyph: GlyphId) -> Result<FlowPoint, TypefaceError> {
             Ok(FlowPoint { x: 1, y: 0 })
+        }
+    }
+
+    struct EdgeTypeface;
+
+    impl Typeface for EdgeTypeface {
+        fn key(&self) -> FaceKey {
+            FaceKey::new(9)
+        }
+
+        fn metrics(&self) -> Result<FontMetrics, TypefaceError> {
+            Ok(FontMetrics::default())
+        }
+
+        fn covers(&self, _grapheme: &str) -> Result<bool, TypefaceError> {
+            Ok(true)
+        }
+
+        fn shape_into(
+            &self,
+            request: &ShapeRequest<'_>,
+            output: &mut [ShapedGlyph],
+        ) -> Result<usize, ShapeError> {
+            let shaped = &request.text[request.range.clone()];
+            let required = shaped.chars().count();
+            if output.len() < required {
+                return Err(ShapeError::InsufficientCapacity { required });
+            }
+            let advance = if request.line_edges.has_start() || request.line_edges.has_end() {
+                2
+            } else {
+                1
+            };
+            for (index, (offset, character)) in shaped.char_indices().enumerate() {
+                let start = request.range.start + offset;
+                let end = start + character.len_utf8();
+                output[index] = ShapedGlyph::new(
+                    GlyphId::new(character as u16),
+                    TextRange::new(start as u32, end as u32),
+                );
+                output[index].advance.x = advance;
+            }
+            Ok(required)
+        }
+    }
+
+    struct InvalidTypeface;
+
+    impl Typeface for InvalidTypeface {
+        fn key(&self) -> FaceKey {
+            FaceKey::new(10)
+        }
+
+        fn metrics(&self) -> Result<FontMetrics, TypefaceError> {
+            Ok(FontMetrics::default())
+        }
+
+        fn covers(&self, _grapheme: &str) -> Result<bool, TypefaceError> {
+            Ok(true)
+        }
+
+        fn shape_into(
+            &self,
+            _request: &ShapeRequest<'_>,
+            output: &mut [ShapedGlyph],
+        ) -> Result<usize, ShapeError> {
+            Ok(output.len() + 1)
         }
     }
 
@@ -759,5 +1237,143 @@ mod tests {
         assert_eq!(lines.lines()[0].text(), TextRange::new(0, 4));
         assert_eq!(lines.lines()[0].advance(), 4);
         assert_eq!(lines.lines()[1].text(), TextRange::new(4, 5));
+    }
+
+    #[test]
+    fn reshapes_line_edges_into_visual_outputs() {
+        let text = "ab cd";
+        let typefaces: [&dyn Typeface; 1] = [&EdgeTypeface];
+        let mut bidi_output = bidi_slots::<1>();
+        let bidi =
+            BidiText::resolve(text, 0..text.len(), BaseDirection::Auto, &mut bidi_output).unwrap();
+        let mut logical_output = [LogicalRun::empty(); 1];
+        let logical = LogicalRuns::resolve(text, &bidi, &typefaces, &mut logical_output).unwrap();
+        let mut initial_glyphs = [ShapedGlyph::default(); 5];
+        let mut initial_runs = [GlyphRun::empty(); 1];
+        let shaped = logical
+            .shape_into(
+                text,
+                &typefaces,
+                &[],
+                &mut initial_glyphs,
+                &mut initial_runs,
+            )
+            .unwrap();
+        let mut broken_output = [BrokenLine::empty(); 2];
+        let broken = shaped.break_into(text, 3, &mut broken_output).unwrap();
+        let mut scratch = [ShapedGlyph::default(); 3];
+        let mut glyphs = [PositionedGlyph::default(); 5];
+        let mut runs = [VisualRun::empty(); 2];
+        let mut lines = [LayoutLine::empty(); 2];
+        let mut carets = [CaretStop::default(); 7];
+        let layout = logical
+            .layout_into(
+                text,
+                &typefaces,
+                &[],
+                &broken,
+                LayoutOptions::new(10).with_origin(FlowPoint { x: 5, y: 7 }),
+                LayoutBuffers::new(
+                    &mut scratch,
+                    &mut glyphs,
+                    &mut runs,
+                    &mut lines,
+                    &mut carets,
+                ),
+            )
+            .unwrap();
+
+        assert_eq!(layout.lines().len(), 2);
+        assert_eq!(layout.lines()[0].advance(), 6);
+        assert_eq!(layout.lines()[1].advance(), 4);
+        assert_eq!(layout.lines()[0].origin(), FlowPoint { x: 5, y: 7 });
+        assert_eq!(layout.lines()[1].origin(), FlowPoint { x: 5, y: 17 });
+        assert_eq!(layout.runs().len(), 2);
+        assert_eq!(layout.runs()[0].face(), FaceKey::new(9));
+        assert_eq!(layout.glyphs().len(), 5);
+        assert_eq!(layout.carets().len(), 7);
+    }
+
+    #[test]
+    fn rejects_invalid_typeface_output_counts() {
+        let text = "a";
+        let typefaces: [&dyn Typeface; 1] = [&InvalidTypeface];
+        let mut bidi_output = bidi_slots::<1>();
+        let bidi =
+            BidiText::resolve(text, 0..text.len(), BaseDirection::Auto, &mut bidi_output).unwrap();
+        let mut logical_output = [LogicalRun::empty(); 1];
+        let logical = LogicalRuns::resolve(text, &bidi, &typefaces, &mut logical_output).unwrap();
+        let mut glyphs = [ShapedGlyph::default(); 1];
+        let mut runs = [GlyphRun::empty(); 1];
+
+        assert_eq!(
+            logical
+                .shape_into(text, &typefaces, &[], &mut glyphs, &mut runs)
+                .err()
+                .unwrap(),
+            LayoutError::InvalidTypefaceOutput { run: 0 }
+        );
+    }
+
+    #[test]
+    fn reorders_mixed_runs_for_rtl_lines() {
+        let text = "אבג abc";
+        let primary = SimpleTypeface::new(&Source {
+            key: 1,
+            ascii: false,
+        });
+        let fallback = SimpleTypeface::new(&Source {
+            key: 2,
+            ascii: true,
+        });
+        let typefaces: [&dyn Typeface; 2] = [&primary, &fallback];
+        let mut bidi_output = bidi_slots::<4>();
+        let bidi = BidiText::resolve(
+            text,
+            0..text.len(),
+            BaseDirection::RightToLeft,
+            &mut bidi_output,
+        )
+        .unwrap();
+        let mut logical_output = [LogicalRun::empty(); 4];
+        let logical = LogicalRuns::resolve(text, &bidi, &typefaces, &mut logical_output).unwrap();
+        let mut initial_glyphs = [ShapedGlyph::default(); 7];
+        let mut initial_runs = [GlyphRun::empty(); 4];
+        let shaped = logical
+            .shape_into(
+                text,
+                &typefaces,
+                &[],
+                &mut initial_glyphs,
+                &mut initial_runs,
+            )
+            .unwrap();
+        let mut broken_output = [BrokenLine::empty(); 1];
+        let broken = shaped.break_into(text, 100, &mut broken_output).unwrap();
+        let mut scratch = [ShapedGlyph::default(); 3];
+        let mut glyphs = [PositionedGlyph::default(); 7];
+        let mut runs = [VisualRun::empty(); 4];
+        let mut lines = [LayoutLine::empty(); 1];
+        let mut carets = [CaretStop::default(); 12];
+        let layout = logical
+            .layout_into(
+                text,
+                &typefaces,
+                &[],
+                &broken,
+                LayoutOptions::new(10),
+                LayoutBuffers::new(
+                    &mut scratch,
+                    &mut glyphs,
+                    &mut runs,
+                    &mut lines,
+                    &mut carets,
+                ),
+            )
+            .unwrap();
+
+        let first = layout.runs()[0].text();
+        assert_eq!(&text[first.start as usize..first.end as usize], "abc");
+        assert_eq!(layout.runs()[0].bidi_level(), 2);
     }
 }

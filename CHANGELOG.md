@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-09-10
+
 ### Fixed
 
 - Arabic combining marks retain transparent joining masks when grapheme clusters are merged.
@@ -31,7 +33,8 @@
 - Optional reusable `alloc` workspace with fixed admission limits.
 - Explicit capacity, font access, and unsupported-text errors.
 
-[Unreleased]: https://github.com/W-Mai/textflow/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/W-Mai/textflow/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/W-Mai/textflow/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/W-Mai/textflow/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/W-Mai/textflow/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/W-Mai/textflow/releases/tag/v0.1.0

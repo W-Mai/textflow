@@ -66,6 +66,24 @@ pub struct FontFeature {
     pub range: TextRange,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct LineEdges(u8);
+
+impl LineEdges {
+    pub const NONE: Self = Self(0);
+    pub const START: Self = Self(1);
+    pub const END: Self = Self(2);
+    pub const BOTH: Self = Self(3);
+
+    pub const fn has_start(self) -> bool {
+        self.0 & Self::START.0 != 0
+    }
+
+    pub const fn has_end(self) -> bool {
+        self.0 & Self::END.0 != 0
+    }
+}
+
 impl FontFeature {
     pub const fn new(tag: [u8; 4], value: u32) -> Self {
         Self {
@@ -88,6 +106,7 @@ pub struct ShapeRequest<'a> {
     pub script: Script,
     pub language: Option<&'a str>,
     pub features: &'a [FontFeature],
+    pub line_edges: LineEdges,
 }
 
 impl<'a> ShapeRequest<'a> {
@@ -99,6 +118,7 @@ impl<'a> ShapeRequest<'a> {
             script,
             language: None,
             features: &[],
+            line_edges: LineEdges::NONE,
         }
     }
 
@@ -109,6 +129,11 @@ impl<'a> ShapeRequest<'a> {
 
     pub fn with_features(mut self, features: &'a [FontFeature]) -> Self {
         self.features = features;
+        self
+    }
+
+    pub fn with_line_edges(mut self, edges: LineEdges) -> Self {
+        self.line_edges = edges;
         self
     }
 }
@@ -175,6 +200,58 @@ impl ShapedGlyph {
         } else {
             self.flags &= !Self::UNSAFE_TO_BREAK;
         }
+    }
+}
+
+pub struct ShapedRun<'a> {
+    face: FaceKey,
+    text: TextRange,
+    direction: Direction,
+    glyphs: &'a [ShapedGlyph],
+}
+
+impl<'a> ShapedRun<'a> {
+    pub const fn new(
+        face: FaceKey,
+        text: TextRange,
+        direction: Direction,
+        glyphs: &'a [ShapedGlyph],
+    ) -> Self {
+        Self {
+            face,
+            text,
+            direction,
+            glyphs,
+        }
+    }
+
+    pub const fn face(&self) -> FaceKey {
+        self.face
+    }
+
+    pub const fn text(&self) -> TextRange {
+        self.text
+    }
+
+    pub const fn direction(&self) -> Direction {
+        self.direction
+    }
+
+    pub const fn glyphs(&self) -> &[ShapedGlyph] {
+        self.glyphs
+    }
+
+    pub fn is_safe_break(&self, offset: u32) -> bool {
+        if offset == self.text.start || offset == self.text.end {
+            return true;
+        }
+        if offset < self.text.start || offset > self.text.end {
+            return false;
+        }
+        !self.glyphs.iter().any(|glyph| {
+            glyph.cluster.start < offset && offset < glyph.cluster.end
+                || glyph.cluster.start == offset && glyph.unsafe_to_break()
+        })
     }
 }
 
@@ -416,5 +493,35 @@ mod tests {
             ),
             Err(ShapeError::UnsupportedCluster { offset: 0 })
         );
+    }
+
+    #[test]
+    fn run_rejects_breaks_inside_or_before_unsafe_clusters() {
+        let mut glyphs = [
+            ShapedGlyph::new(GlyphId::new(1), TextRange::new(0, 3)),
+            ShapedGlyph::new(GlyphId::new(2), TextRange::new(3, 4)),
+        ];
+        glyphs[1].set_unsafe_to_break(true);
+        let run = ShapedRun::new(
+            FaceKey::new(4),
+            TextRange::new(0, 4),
+            Direction::LeftToRight,
+            &glyphs,
+        );
+
+        assert!(run.is_safe_break(0));
+        assert!(!run.is_safe_break(1));
+        assert!(!run.is_safe_break(3));
+        assert!(run.is_safe_break(4));
+        assert!(!run.is_safe_break(5));
+    }
+
+    #[test]
+    fn request_carries_explicit_line_edges() {
+        let request = ShapeRequest::new("a", 0..1, Direction::LeftToRight, Script::Latin)
+            .with_line_edges(LineEdges::BOTH);
+
+        assert!(request.line_edges.has_start());
+        assert!(request.line_edges.has_end());
     }
 }

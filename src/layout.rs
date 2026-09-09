@@ -205,17 +205,72 @@ impl<'a> LogicalRuns<'a> {
         options: LayoutOptions,
         buffers: LayoutBuffers<'output>,
     ) -> Result<ParagraphLayout<'output>, LayoutError> {
-        if options.line_height < 0 {
+        ParagraphBuilder::new(options, buffers).layout(
+            LayoutInput {
+                text,
+                typefaces,
+                features,
+                logical: self.runs,
+            },
+            broken,
+        )
+    }
+}
+
+#[derive(Clone, Copy)]
+struct LayoutInput<'a, 'face> {
+    text: &'a str,
+    typefaces: &'a [&'face dyn Typeface],
+    features: &'a [FontFeature],
+    logical: &'a [LogicalRun],
+}
+
+struct ParagraphBuilder<'a> {
+    options: LayoutOptions,
+    buffers: LayoutBuffers<'a>,
+    run_count: usize,
+    glyph_count: usize,
+    caret_count: usize,
+}
+
+impl<'output> ParagraphBuilder<'output> {
+    fn new(options: LayoutOptions, buffers: LayoutBuffers<'output>) -> Self {
+        Self {
+            options,
+            buffers,
+            run_count: 0,
+            glyph_count: 0,
+            caret_count: 0,
+        }
+    }
+
+    fn layout(
+        mut self,
+        input: LayoutInput<'_, '_>,
+        broken: &BrokenLines<'_>,
+    ) -> Result<ParagraphLayout<'output>, LayoutError> {
+        self.preflight(input.logical, broken)?;
+        for (line_index, broken_line) in broken.lines.iter().enumerate() {
+            self.push_line(input, line_index, *broken_line)?;
+        }
+        Ok(self.finish(broken.lines.len()))
+    }
+
+    fn preflight(
+        &self,
+        logical: &[LogicalRun],
+        broken: &BrokenLines<'_>,
+    ) -> Result<(), LayoutError> {
+        if self.options.line_height < 0 {
             return Err(LayoutError::InvalidLineHeight);
         }
-        if buffers.lines.len() < broken.lines.len() {
+        if self.buffers.lines.len() < broken.lines.len() {
             return Err(LayoutError::InsufficientLineCapacity {
                 required: broken.lines.len(),
             });
         }
         let required_runs = broken.lines.iter().try_fold(0usize, |count, line| {
-            let line_runs = self
-                .runs
+            let line_runs = logical
                 .iter()
                 .filter(|run| intersection(run.text, line.text).is_some())
                 .count();
@@ -226,141 +281,177 @@ impl<'a> LogicalRuns<'a> {
         if required_runs > u32::MAX as usize || broken.lines.len() > u32::MAX as usize {
             return Err(LayoutError::CoordinateOverflow);
         }
-        if buffers.runs.len() < required_runs {
+        if self.buffers.runs.len() < required_runs {
             return Err(LayoutError::InsufficientRunCapacity {
                 required: required_runs,
             });
         }
+        Ok(())
+    }
 
-        let mut run_count: usize = 0;
-        let mut glyph_count: usize = 0;
-        let mut caret_count: usize = 0;
-        for (line_index, broken_line) in broken.lines.iter().enumerate() {
-            let line_run_start = run_count;
-            for logical in self.runs {
-                let Some(text_range) = intersection(logical.text, broken_line.text) else {
-                    continue;
-                };
-                let Some(typeface) = typefaces.get(logical.face_index()) else {
-                    return Err(LayoutError::InvalidRun);
-                };
-                buffers.runs[run_count] = VisualRun {
-                    text: text_range,
-                    glyphs: TextRange::new(0, 0),
-                    face: typeface.key(),
-                    face_index: logical.face,
-                    script: logical.script,
-                    bidi_level: logical.bidi_level,
-                };
-                run_count += 1;
-            }
-            reorder_visual_runs(&mut buffers.runs[line_run_start..run_count]);
+    fn push_line(
+        &mut self,
+        input: LayoutInput<'_, '_>,
+        line_index: usize,
+        broken: BrokenLine,
+    ) -> Result<(), LayoutError> {
+        let line_run_start = self.run_count;
+        self.append_visual_runs(input.logical, input.typefaces, broken)?;
+        reorder_visual_runs(&mut self.buffers.runs[line_run_start..self.run_count]);
 
-            let line_number =
-                i32::try_from(line_index).map_err(|_| LayoutError::CoordinateOverflow)?;
-            let y = options
-                .line_height
-                .checked_mul(line_number)
-                .and_then(|offset| options.origin.y.checked_add(offset))
-                .ok_or(LayoutError::CoordinateOverflow)?;
-            let line_origin = FlowPoint {
-                x: options.origin.x,
-                y,
-            };
-            let line_glyph_start = glyph_count;
-            let line_caret_start = caret_count;
-            let mut pen = line_origin;
-            for run_index in line_run_start..run_count {
-                let mut visual = buffers.runs[run_index];
-                let Some(typeface) = typefaces.get(visual.face_index as usize) else {
-                    return Err(LayoutError::InvalidRun);
-                };
-                let edges = match (
-                    visual.text.start == broken_line.text.start,
-                    visual.text.end == broken_line.text.end,
-                ) {
-                    (true, true) => LineEdges::BOTH,
-                    (true, false) => LineEdges::START,
-                    (false, true) => LineEdges::END,
-                    (false, false) => LineEdges::NONE,
-                };
-                let request = ShapeRequest::new(
-                    text,
-                    visual.text.start as usize..visual.text.end as usize,
-                    crate::bidi::Direction::from_level(visual.bidi_level),
-                    visual.script,
-                )
-                .with_features(features)
-                .with_line_edges(edges);
-                let count = match typeface.shape_into(&request, buffers.scratch) {
-                    Ok(count) => count,
-                    Err(ShapeError::InsufficientCapacity { required }) => {
-                        return Err(LayoutError::InsufficientScratchCapacity { minimum: required });
-                    }
-                    Err(error) => {
-                        return Err(LayoutError::Shape {
-                            run: run_index,
-                            error,
-                        });
-                    }
-                };
-                if count > buffers.scratch.len()
-                    || !valid_shaped_output(&request, &buffers.scratch[..count])
-                {
-                    return Err(LayoutError::InvalidTypefaceOutput { run: run_index });
-                }
-                let glyph_end = glyph_count
-                    .checked_add(count)
-                    .ok_or(LayoutError::CoordinateOverflow)?;
-                if glyph_end > u32::MAX as usize {
-                    return Err(LayoutError::CoordinateOverflow);
-                }
-                if glyph_end > buffers.glyphs.len() {
-                    return Err(LayoutError::InsufficientPositionedCapacity { minimum: glyph_end });
-                }
-                let shaped = ShapedRun::new(
-                    visual.face,
-                    visual.text,
-                    visual.bidi_level,
-                    &buffers.scratch[..count],
-                );
-                let positioned = shaped
-                    .position_into(pen, &mut buffers.glyphs[glyph_count..glyph_end])
-                    .map_err(|error| position_error(error, glyph_count))?;
-                pen = positioned.end();
-                let carets = positioned
-                    .carets_into(&mut buffers.carets[caret_count..])
-                    .map_err(|error| caret_error(error, caret_count))?;
-                caret_count = caret_count
-                    .checked_add(carets.len())
-                    .ok_or(LayoutError::CoordinateOverflow)?;
-                if caret_count > u32::MAX as usize {
-                    return Err(LayoutError::CoordinateOverflow);
-                }
-                visual.glyphs = TextRange::new(glyph_count as u32, glyph_end as u32);
-                buffers.runs[run_index] = visual;
-                glyph_count = glyph_end;
-            }
-            let line_end = pen
-                .x
-                .checked_sub(line_origin.x)
-                .ok_or(LayoutError::CoordinateOverflow)?;
-            buffers.lines[line_index] = LayoutLine {
-                text: broken_line.text,
-                runs: TextRange::new(line_run_start as u32, run_count as u32),
-                glyphs: TextRange::new(line_glyph_start as u32, glyph_count as u32),
-                carets: TextRange::new(line_caret_start as u32, caret_count as u32),
-                origin: line_origin,
-                advance: line_end,
-            };
+        let origin = self.line_origin(line_index)?;
+        let line_glyph_start = self.glyph_count;
+        let line_caret_start = self.caret_count;
+        let mut pen = origin;
+        for run_index in line_run_start..self.run_count {
+            pen = self.shape_run(input, run_index, broken, pen)?;
         }
+        let advance = pen
+            .x
+            .checked_sub(origin.x)
+            .ok_or(LayoutError::CoordinateOverflow)?;
+        self.buffers.lines[line_index] = LayoutLine {
+            text: broken.text,
+            runs: TextRange::new(line_run_start as u32, self.run_count as u32),
+            glyphs: TextRange::new(line_glyph_start as u32, self.glyph_count as u32),
+            carets: TextRange::new(line_caret_start as u32, self.caret_count as u32),
+            origin,
+            advance,
+        };
+        Ok(())
+    }
 
-        Ok(ParagraphLayout {
-            lines: &buffers.lines[..broken.lines.len()],
-            runs: &buffers.runs[..run_count],
-            glyphs: &buffers.glyphs[..glyph_count],
-            carets: &buffers.carets[..caret_count],
+    fn append_visual_runs(
+        &mut self,
+        logical: &[LogicalRun],
+        typefaces: &[&dyn Typeface],
+        broken: BrokenLine,
+    ) -> Result<(), LayoutError> {
+        for logical in logical {
+            let Some(text) = intersection(logical.text, broken.text) else {
+                continue;
+            };
+            let Some(typeface) = typefaces.get(logical.face_index()) else {
+                return Err(LayoutError::InvalidRun);
+            };
+            self.buffers.runs[self.run_count] = VisualRun {
+                text,
+                glyphs: TextRange::new(0, 0),
+                face: typeface.key(),
+                face_index: logical.face,
+                script: logical.script,
+                bidi_level: logical.bidi_level,
+            };
+            self.run_count += 1;
+        }
+        Ok(())
+    }
+
+    fn line_origin(&self, line_index: usize) -> Result<FlowPoint, LayoutError> {
+        let line = i32::try_from(line_index).map_err(|_| LayoutError::CoordinateOverflow)?;
+        let y = self
+            .options
+            .line_height
+            .checked_mul(line)
+            .and_then(|offset| self.options.origin.y.checked_add(offset))
+            .ok_or(LayoutError::CoordinateOverflow)?;
+        Ok(FlowPoint {
+            x: self.options.origin.x,
+            y,
         })
+    }
+
+    fn shape_run(
+        &mut self,
+        input: LayoutInput<'_, '_>,
+        run_index: usize,
+        line: BrokenLine,
+        origin: FlowPoint,
+    ) -> Result<FlowPoint, LayoutError> {
+        let mut visual = self.buffers.runs[run_index];
+        let Some(typeface) = input.typefaces.get(visual.face_index as usize) else {
+            return Err(LayoutError::InvalidRun);
+        };
+        let request = ShapeRequest::new(
+            input.text,
+            visual.text.start as usize..visual.text.end as usize,
+            crate::bidi::Direction::from_level(visual.bidi_level),
+            visual.script,
+        )
+        .with_features(input.features)
+        .with_line_edges(line_edges(visual.text, line.text));
+        let count = match typeface.shape_into(&request, self.buffers.scratch) {
+            Ok(count) => count,
+            Err(ShapeError::InsufficientCapacity { required }) => {
+                return Err(LayoutError::InsufficientScratchCapacity { minimum: required });
+            }
+            Err(error) => {
+                return Err(LayoutError::Shape {
+                    run: run_index,
+                    error,
+                });
+            }
+        };
+        if count > self.buffers.scratch.len()
+            || !valid_shaped_output(&request, &self.buffers.scratch[..count])
+        {
+            return Err(LayoutError::InvalidTypefaceOutput { run: run_index });
+        }
+        let glyph_end = self
+            .glyph_count
+            .checked_add(count)
+            .ok_or(LayoutError::CoordinateOverflow)?;
+        if glyph_end > u32::MAX as usize {
+            return Err(LayoutError::CoordinateOverflow);
+        }
+        if glyph_end > self.buffers.glyphs.len() {
+            return Err(LayoutError::InsufficientPositionedCapacity { minimum: glyph_end });
+        }
+        let shaped = ShapedRun::new(
+            visual.face,
+            visual.text,
+            visual.bidi_level,
+            &self.buffers.scratch[..count],
+        );
+        let positioned = shaped
+            .position_into(
+                origin,
+                &mut self.buffers.glyphs[self.glyph_count..glyph_end],
+            )
+            .map_err(|error| position_error(error, self.glyph_count))?;
+        let end = positioned.end();
+        let carets = positioned
+            .carets_into(&mut self.buffers.carets[self.caret_count..])
+            .map_err(|error| caret_error(error, self.caret_count))?;
+        self.caret_count = self
+            .caret_count
+            .checked_add(carets.len())
+            .ok_or(LayoutError::CoordinateOverflow)?;
+        if self.caret_count > u32::MAX as usize {
+            return Err(LayoutError::CoordinateOverflow);
+        }
+        visual.glyphs = TextRange::new(self.glyph_count as u32, glyph_end as u32);
+        self.buffers.runs[run_index] = visual;
+        self.glyph_count = glyph_end;
+        Ok(end)
+    }
+
+    fn finish(self, line_count: usize) -> ParagraphLayout<'output> {
+        ParagraphLayout {
+            lines: &self.buffers.lines[..line_count],
+            runs: &self.buffers.runs[..self.run_count],
+            glyphs: &self.buffers.glyphs[..self.glyph_count],
+            carets: &self.buffers.carets[..self.caret_count],
+        }
+    }
+}
+
+fn line_edges(run: TextRange, line: TextRange) -> LineEdges {
+    match (run.start == line.start, run.end == line.end) {
+        (true, true) => LineEdges::BOTH,
+        (true, false) => LineEdges::START,
+        (false, true) => LineEdges::END,
+        (false, false) => LineEdges::NONE,
     }
 }
 

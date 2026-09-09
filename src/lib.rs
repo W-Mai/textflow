@@ -71,6 +71,10 @@ pub struct TextFlow<'a> {
     origin: FlowPoint,
     #[cfg(feature = "shaping")]
     wrap: WrapMode,
+    #[cfg(feature = "shaping")]
+    letter_spacing: i32,
+    #[cfg(feature = "shaping")]
+    word_spacing: i32,
 }
 
 impl<'a> TextFlow<'a> {
@@ -89,6 +93,10 @@ impl<'a> TextFlow<'a> {
             origin: FlowPoint { x: 0, y: 0 },
             #[cfg(feature = "shaping")]
             wrap: WrapMode::Word,
+            #[cfg(feature = "shaping")]
+            letter_spacing: 0,
+            #[cfg(feature = "shaping")]
+            word_spacing: 0,
         };
 
         flow.lines = Lines::new(flow.text, flow.max_width, 4);
@@ -127,6 +135,18 @@ impl<'a> TextFlow<'a> {
     #[cfg(feature = "shaping")]
     pub const fn with_wrap(mut self, wrap: WrapMode) -> Self {
         self.wrap = wrap;
+        self
+    }
+
+    #[cfg(feature = "shaping")]
+    pub const fn with_letter_spacing(mut self, spacing: i32) -> Self {
+        self.letter_spacing = spacing;
+        self
+    }
+
+    #[cfg(feature = "shaping")]
+    pub const fn with_word_spacing(mut self, spacing: i32) -> Self {
+        self.word_spacing = spacing;
         self
     }
 

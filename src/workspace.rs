@@ -1,7 +1,7 @@
 use crate::bidi::{BidiError, BidiRun, BidiText};
 use crate::layout::{
     BrokenLine, GlyphRun, LayoutBuffers, LayoutError, LayoutLine, LayoutOptions, LogicalRun,
-    LogicalRuns, ParagraphLayout, VisualRun,
+    LogicalRuns, ParagraphLayout, TextSpacing, VisualRun,
 };
 use crate::shaping::{CaretStop, PositionedGlyph, ShapedGlyph, Typeface};
 use crate::TextFlow;
@@ -131,13 +131,20 @@ impl TextWorkspace {
             &mut self.initial_glyphs,
             &mut self.initial_runs,
         )?;
-        let broken = shaped.break_into(flow.text, max_width, flow.wrap, &mut self.broken)?;
+        let spacing = TextSpacing {
+            letter: flow.letter_spacing,
+            word: flow.word_spacing,
+        };
+        let broken =
+            shaped.break_into(flow.text, max_width, flow.wrap, spacing, &mut self.broken)?;
         Ok(logical.layout_into(
             flow.text,
             typefaces,
             flow.features,
             &broken,
-            LayoutOptions::new(line_advance).with_origin(flow.origin),
+            LayoutOptions::new(line_advance)
+                .with_origin(flow.origin)
+                .with_spacing(spacing),
             LayoutBuffers::new(
                 &mut self.scratch,
                 &mut self.glyphs,

@@ -397,6 +397,12 @@ impl<'output> ParagraphBuilder<'output> {
         {
             return Err(LayoutError::InvalidTypefaceOutput { run: run_index });
         }
+        apply_spacing(
+            input.text,
+            run_index + 1 < self.run_count,
+            self.options.spacing,
+            &mut self.buffers.scratch[..count],
+        )?;
         let glyph_end = self
             .glyph_count
             .checked_add(count)
@@ -453,6 +459,69 @@ fn line_edges(run: TextRange, line: TextRange) -> LineEdges {
         (false, true) => LineEdges::END,
         (false, false) => LineEdges::NONE,
     }
+}
+
+fn spacing_after(
+    text: &str,
+    cluster: TextRange,
+    paragraph: TextRange,
+    spacing: TextSpacing,
+) -> Result<i32, LayoutError> {
+    if cluster.end >= paragraph.end {
+        return Ok(0);
+    }
+    cluster_spacing(text, cluster, spacing)
+}
+
+fn apply_spacing(
+    text: &str,
+    has_following_run: bool,
+    spacing: TextSpacing,
+    glyphs: &mut [ShapedGlyph],
+) -> Result<(), LayoutError> {
+    let mut start = 0;
+    while start < glyphs.len() {
+        let cluster = glyphs[start].cluster;
+        let mut end = start + 1;
+        while end < glyphs.len() && glyphs[end].cluster == cluster {
+            end += 1;
+        }
+        if end < glyphs.len() || has_following_run {
+            let extra = cluster_spacing(text, cluster, spacing)?;
+            glyphs[end - 1].advance.x = glyphs[end - 1]
+                .advance
+                .x
+                .checked_add(extra)
+                .ok_or(LayoutError::CoordinateOverflow)?;
+        }
+        start = end;
+    }
+    Ok(())
+}
+
+fn cluster_spacing(
+    text: &str,
+    cluster: TextRange,
+    spacing: TextSpacing,
+) -> Result<i32, LayoutError> {
+    let value = text
+        .get(cluster.start as usize..cluster.end as usize)
+        .ok_or(LayoutError::InvalidRun)?;
+    if value
+        .chars()
+        .any(|character| matches!(character, '\r' | '\n'))
+    {
+        return Ok(0);
+    }
+    let word = if !value.is_empty() && value.chars().all(char::is_whitespace) {
+        spacing.word
+    } else {
+        0
+    };
+    spacing
+        .letter
+        .checked_add(word)
+        .ok_or(LayoutError::CoordinateOverflow)
 }
 
 struct LogicalRunWriter<'a> {
@@ -551,6 +620,12 @@ pub enum WrapMode {
     Grapheme,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct TextSpacing {
+    pub letter: i32,
+    pub word: i32,
+}
+
 impl ShapedText<'_> {
     pub const fn text(&self) -> TextRange {
         self.text
@@ -595,6 +670,7 @@ impl ShapedText<'_> {
         text: &str,
         max_width: i32,
         mode: WrapMode,
+        spacing: TextSpacing,
         output: &'output mut [BrokenLine],
     ) -> Result<BrokenLines<'output>, LayoutError> {
         if max_width < 0 {
@@ -624,6 +700,9 @@ impl ShapedText<'_> {
                     .ok_or(LayoutError::CoordinateOverflow)?;
                 glyphs.next();
             }
+            advance = advance
+                .checked_add(spacing_after(text, cluster, self.text, spacing)?)
+                .ok_or(LayoutError::CoordinateOverflow)?;
             breaker.add_cluster(cluster, advance)?;
         }
         breaker.finish()
@@ -852,6 +931,7 @@ impl<'a> LineWriter<'a> {
 pub struct LayoutOptions {
     pub origin: FlowPoint,
     pub line_height: i32,
+    pub spacing: TextSpacing,
 }
 
 impl LayoutOptions {
@@ -859,11 +939,17 @@ impl LayoutOptions {
         Self {
             origin: FlowPoint { x: 0, y: 0 },
             line_height,
+            spacing: TextSpacing { letter: 0, word: 0 },
         }
     }
 
     pub const fn with_origin(mut self, origin: FlowPoint) -> Self {
         self.origin = origin;
+        self
+    }
+
+    pub const fn with_spacing(mut self, spacing: TextSpacing) -> Self {
+        self.spacing = spacing;
         self
     }
 }
@@ -1306,7 +1392,13 @@ mod tests {
             .unwrap();
         let mut line_output = [BrokenLine::empty(); 2];
         let lines = shaped
-            .break_into(text, 3, WrapMode::Word, &mut line_output)
+            .break_into(
+                text,
+                3,
+                WrapMode::Word,
+                TextSpacing::default(),
+                &mut line_output,
+            )
             .unwrap();
 
         assert_eq!(lines.lines().len(), 2);
@@ -1318,7 +1410,13 @@ mod tests {
         let mut no_lines = [];
         assert_eq!(
             shaped
-                .break_into(text, 3, WrapMode::Word, &mut no_lines)
+                .break_into(
+                    text,
+                    3,
+                    WrapMode::Word,
+                    TextSpacing::default(),
+                    &mut no_lines,
+                )
                 .err()
                 .unwrap(),
             LayoutError::InsufficientLineCapacity { required: 2 }
@@ -1346,17 +1444,35 @@ mod tests {
         let mut line_output = [BrokenLine::empty(); 2];
 
         let word = shaped
-            .break_into(text, 4, WrapMode::Word, &mut line_output)
+            .break_into(
+                text,
+                4,
+                WrapMode::Word,
+                TextSpacing::default(),
+                &mut line_output,
+            )
             .unwrap();
         assert_eq!(word.lines()[0].text(), TextRange::new(0, 3));
 
         let grapheme = shaped
-            .break_into(text, 4, WrapMode::Grapheme, &mut line_output)
+            .break_into(
+                text,
+                4,
+                WrapMode::Grapheme,
+                TextSpacing::default(),
+                &mut line_output,
+            )
             .unwrap();
         assert_eq!(grapheme.lines()[0].text(), TextRange::new(0, 4));
 
         let no_wrap = shaped
-            .break_into(text, 4, WrapMode::NoWrap, &mut line_output)
+            .break_into(
+                text,
+                4,
+                WrapMode::NoWrap,
+                TextSpacing::default(),
+                &mut line_output,
+            )
             .unwrap();
         assert_eq!(
             no_wrap.lines(),
@@ -1365,6 +1481,66 @@ mod tests {
                 advance: 5,
             }]
         );
+    }
+
+    #[test]
+    fn spacing_changes_break_width_and_positioned_advances() {
+        let text = "ab c";
+        let primary = SimpleTypeface::new(&Source {
+            key: 1,
+            ascii: true,
+        });
+        let typefaces: [&dyn Typeface; 1] = [&primary];
+        let mut bidi_output = bidi_slots::<1>();
+        let bidi =
+            BidiText::resolve(text, 0..text.len(), BaseDirection::Auto, &mut bidi_output).unwrap();
+        let mut logical_output = [LogicalRun::empty(); 1];
+        let logical = LogicalRuns::resolve(text, &bidi, &typefaces, &mut logical_output).unwrap();
+        let mut initial_glyphs = [ShapedGlyph::default(); 4];
+        let mut initial_runs = [GlyphRun::empty(); 1];
+        let shaped = logical
+            .shape_into(
+                text,
+                &typefaces,
+                &[],
+                &mut initial_glyphs,
+                &mut initial_runs,
+            )
+            .unwrap();
+        let spacing = TextSpacing { letter: 1, word: 2 };
+        let mut broken_output = [BrokenLine::empty(); 1];
+        let broken = shaped
+            .break_into(text, 9, WrapMode::NoWrap, spacing, &mut broken_output)
+            .unwrap();
+        assert_eq!(broken.lines()[0].advance(), 9);
+
+        let mut scratch = [ShapedGlyph::default(); 4];
+        let mut glyphs = [PositionedGlyph::default(); 4];
+        let mut runs = [VisualRun::empty(); 1];
+        let mut lines = [LayoutLine::empty(); 1];
+        let mut carets = [CaretStop::default(); 5];
+        let layout = logical
+            .layout_into(
+                text,
+                &typefaces,
+                &[],
+                &broken,
+                LayoutOptions::new(10).with_spacing(spacing),
+                LayoutBuffers::new(
+                    &mut scratch,
+                    &mut glyphs,
+                    &mut runs,
+                    &mut lines,
+                    &mut carets,
+                ),
+            )
+            .unwrap();
+
+        assert_eq!(layout.lines()[0].advance(), 9);
+        assert_eq!(layout.glyphs()[1].origin.x, 2);
+        assert_eq!(layout.glyphs()[2].origin.x, 4);
+        assert_eq!(layout.glyphs()[3].origin.x, 8);
+        assert_eq!(layout.carets().last().unwrap().position.x, 9);
     }
 
     #[test]
@@ -1392,7 +1568,13 @@ mod tests {
         };
         let mut line_output = [BrokenLine::empty(); 2];
         let lines = shaped
-            .break_into(text, 3, WrapMode::Word, &mut line_output)
+            .break_into(
+                text,
+                3,
+                WrapMode::Word,
+                TextSpacing::default(),
+                &mut line_output,
+            )
             .unwrap();
 
         assert_eq!(lines.lines()[0].text(), TextRange::new(0, 4));
@@ -1422,7 +1604,13 @@ mod tests {
             .unwrap();
         let mut broken_output = [BrokenLine::empty(); 2];
         let broken = shaped
-            .break_into(text, 3, WrapMode::Word, &mut broken_output)
+            .break_into(
+                text,
+                3,
+                WrapMode::Word,
+                TextSpacing::default(),
+                &mut broken_output,
+            )
             .unwrap();
         let mut scratch = [ShapedGlyph::default(); 3];
         let mut glyphs = [PositionedGlyph::default(); 5];
@@ -1513,7 +1701,13 @@ mod tests {
             .unwrap();
         let mut broken_output = [BrokenLine::empty(); 1];
         let broken = shaped
-            .break_into(text, 100, WrapMode::Word, &mut broken_output)
+            .break_into(
+                text,
+                100,
+                WrapMode::Word,
+                TextSpacing::default(),
+                &mut broken_output,
+            )
             .unwrap();
         let mut scratch = [ShapedGlyph::default(); 3];
         let mut glyphs = [PositionedGlyph::default(); 7];

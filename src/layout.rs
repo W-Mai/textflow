@@ -3,7 +3,8 @@ use crate::shaping::{
     FaceKey, FontFeature, ShapeError, ShapeRequest, ShapedGlyph, ShapedRun, TextRange, Typeface,
     TypefaceError,
 };
-use crate::unicode::{graphemes, script_runs, Script};
+use crate::unicode::{graphemes, line_breaks, script_runs, LineBreakKind, LineBreaks, Script};
+use core::iter::Peekable;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LogicalRun {
@@ -46,7 +47,10 @@ pub enum LayoutError {
     TooManyFaces,
     InsufficientRunCapacity { required: usize },
     InsufficientGlyphCapacity { minimum: usize },
+    InsufficientLineCapacity { required: usize },
     InvalidRun,
+    InvalidWidth,
+    CoordinateOverflow,
     Typeface(TypefaceError),
     Shape { run: usize, error: ShapeError },
 }
@@ -300,6 +304,261 @@ impl ShapedText<'_> {
             .get(run.glyphs.start as usize..run.glyphs.end as usize)?;
         Some(ShapedRun::new(run.face, run.text, run.bidi_level, glyphs))
     }
+
+    pub fn is_safe_break(&self, offset: u32) -> bool {
+        if offset == self.text.start || offset == self.text.end {
+            return true;
+        }
+        if offset < self.text.start || offset > self.text.end {
+            return false;
+        }
+        !self.glyphs.iter().any(|glyph| {
+            glyph.cluster.start < offset && offset < glyph.cluster.end
+                || glyph.cluster.start == offset && glyph.unsafe_to_break()
+        })
+    }
+
+    pub fn break_into<'output>(
+        &self,
+        text: &str,
+        max_width: i32,
+        output: &'output mut [BrokenLine],
+    ) -> Result<BrokenLines<'output>, LayoutError> {
+        if max_width < 0 {
+            return Err(LayoutError::InvalidWidth);
+        }
+        let start = self.text.start as usize;
+        let end = self.text.end as usize;
+        if start > end
+            || end > text.len()
+            || !text.is_char_boundary(start)
+            || !text.is_char_boundary(end)
+        {
+            return Err(LayoutError::InvalidRun);
+        }
+        let breaks = line_breaks(&text[start..end]).peekable();
+        let mut breaker = LineBreaker::new(self, self.text, max_width, breaks, output);
+        let mut glyphs = LogicalGlyphs::new(self).peekable();
+        while let Some(first) = glyphs.next() {
+            let cluster = first.cluster;
+            let mut advance = first.advance.x;
+            while let Some(next) = glyphs.peek() {
+                if next.cluster != cluster {
+                    break;
+                }
+                advance = advance
+                    .checked_add(next.advance.x)
+                    .ok_or(LayoutError::CoordinateOverflow)?;
+                glyphs.next();
+            }
+            breaker.add_cluster(cluster, advance)?;
+        }
+        breaker.finish()
+    }
+}
+
+struct LogicalGlyphs<'a> {
+    shaped: &'a ShapedText<'a>,
+    run: usize,
+    glyph: usize,
+}
+
+impl<'a> LogicalGlyphs<'a> {
+    fn new(shaped: &'a ShapedText<'a>) -> Self {
+        Self {
+            shaped,
+            run: 0,
+            glyph: 0,
+        }
+    }
+}
+
+impl<'a> Iterator for LogicalGlyphs<'a> {
+    type Item = &'a ShapedGlyph;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let run = self.shaped.runs.get(self.run)?;
+            let start = run.glyphs.start as usize;
+            let end = run.glyphs.end as usize;
+            if self.glyph < end.saturating_sub(start) {
+                let index = if run.bidi_level & 1 == 0 {
+                    start + self.glyph
+                } else {
+                    end - self.glyph - 1
+                };
+                self.glyph += 1;
+                return self.shaped.glyphs.get(index);
+            }
+            self.run += 1;
+            self.glyph = 0;
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct BrokenLine {
+    text: TextRange,
+    advance: i32,
+}
+
+impl BrokenLine {
+    pub const fn empty() -> Self {
+        Self {
+            text: TextRange::new(0, 0),
+            advance: 0,
+        }
+    }
+
+    pub const fn text(self) -> TextRange {
+        self.text
+    }
+
+    pub const fn advance(self) -> i32 {
+        self.advance
+    }
+}
+
+pub struct BrokenLines<'a> {
+    lines: &'a [BrokenLine],
+}
+
+impl BrokenLines<'_> {
+    pub const fn lines(&self) -> &[BrokenLine] {
+        self.lines
+    }
+}
+
+struct LineBreaker<'shaped, 'glyphs, 'text, 'output> {
+    shaped: &'shaped ShapedText<'glyphs>,
+    paragraph: TextRange,
+    max_width: i32,
+    breaks: Peekable<LineBreaks<'text>>,
+    writer: LineWriter<'output>,
+    line_start: u32,
+    width: i32,
+    last_allowed: Option<(u32, i32)>,
+}
+
+impl<'shaped, 'glyphs, 'text, 'output> LineBreaker<'shaped, 'glyphs, 'text, 'output> {
+    fn new(
+        shaped: &'shaped ShapedText<'glyphs>,
+        paragraph: TextRange,
+        max_width: i32,
+        breaks: Peekable<LineBreaks<'text>>,
+        output: &'output mut [BrokenLine],
+    ) -> Self {
+        Self {
+            shaped,
+            paragraph,
+            max_width,
+            breaks,
+            writer: LineWriter::new(output),
+            line_start: paragraph.start,
+            width: 0,
+            last_allowed: None,
+        }
+    }
+
+    fn add_cluster(&mut self, cluster: TextRange, advance: i32) -> Result<(), LayoutError> {
+        self.take_breaks_through(cluster.start)?;
+        let width_before = self.width;
+        self.width = self
+            .width
+            .checked_add(advance)
+            .ok_or(LayoutError::CoordinateOverflow)?;
+        if self.width > self.max_width {
+            if let Some((offset, width)) = self.last_allowed.take() {
+                self.emit(offset, width)?;
+            } else if width_before > 0
+                && cluster.start > self.line_start
+                && self.shaped.is_safe_break(cluster.start)
+            {
+                self.emit(cluster.start, width_before)?;
+            } else if self.line_start == cluster.start && self.shaped.is_safe_break(cluster.end) {
+                self.emit(cluster.end, self.width)?;
+            }
+        }
+        self.take_breaks_through(cluster.end)
+    }
+
+    fn take_breaks_through(&mut self, offset: u32) -> Result<(), LayoutError> {
+        while self
+            .breaks
+            .peek()
+            .is_some_and(|next| self.paragraph.start as usize + next.offset <= offset as usize)
+        {
+            let next = self.breaks.next().unwrap();
+            let global = self.paragraph.start + next.offset as u32;
+            if global <= self.line_start || !self.shaped.is_safe_break(global) {
+                continue;
+            }
+            match next.kind {
+                LineBreakKind::Mandatory => self.emit(global, self.width)?,
+                LineBreakKind::Allowed if self.width > self.max_width => {
+                    self.emit(global, self.width)?;
+                }
+                LineBreakKind::Allowed => self.last_allowed = Some((global, self.width)),
+            }
+        }
+        Ok(())
+    }
+
+    fn emit(&mut self, end: u32, advance: i32) -> Result<(), LayoutError> {
+        if end <= self.line_start {
+            return Ok(());
+        }
+        self.writer.push(BrokenLine {
+            text: TextRange::new(self.line_start, end),
+            advance,
+        });
+        self.line_start = end;
+        self.width = self
+            .width
+            .checked_sub(advance)
+            .ok_or(LayoutError::CoordinateOverflow)?;
+        self.last_allowed = None;
+        Ok(())
+    }
+
+    fn finish(mut self) -> Result<BrokenLines<'output>, LayoutError> {
+        self.take_breaks_through(self.paragraph.end)?;
+        if self.line_start < self.paragraph.end {
+            self.emit(self.paragraph.end, self.width)?;
+        }
+        let count = self.writer.finish()?;
+        Ok(BrokenLines {
+            lines: &self.writer.output[..count],
+        })
+    }
+}
+
+struct LineWriter<'a> {
+    output: &'a mut [BrokenLine],
+    count: usize,
+}
+
+impl<'a> LineWriter<'a> {
+    fn new(output: &'a mut [BrokenLine]) -> Self {
+        Self { output, count: 0 }
+    }
+
+    fn push(&mut self, line: BrokenLine) {
+        if let Some(slot) = self.output.get_mut(self.count) {
+            *slot = line;
+        }
+        self.count += 1;
+    }
+
+    fn finish(&self) -> Result<usize, LayoutError> {
+        if self.count > self.output.len() {
+            Err(LayoutError::InsufficientLineCapacity {
+                required: self.count,
+            })
+        } else {
+            Ok(self.count)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -435,5 +694,70 @@ mod tests {
                 .unwrap(),
             LayoutError::InsufficientRunCapacity { required: 1 }
         );
+    }
+
+    #[test]
+    fn breaks_at_the_last_allowed_width() {
+        let text = "ab cd";
+        let primary = SimpleTypeface::new(&Source {
+            key: 1,
+            ascii: true,
+        });
+        let typefaces: [&dyn Typeface; 1] = [&primary];
+        let mut bidi_output = bidi_slots::<1>();
+        let bidi =
+            BidiText::resolve(text, 0..text.len(), BaseDirection::Auto, &mut bidi_output).unwrap();
+        let mut logical_output = [LogicalRun::empty(); 1];
+        let logical = LogicalRuns::resolve(text, &bidi, &typefaces, &mut logical_output).unwrap();
+        let mut glyph_output = [ShapedGlyph::default(); 5];
+        let mut run_output = [GlyphRun::empty(); 1];
+        let shaped = logical
+            .shape_into(text, &typefaces, &[], &mut glyph_output, &mut run_output)
+            .unwrap();
+        let mut line_output = [BrokenLine::empty(); 2];
+        let lines = shaped.break_into(text, 3, &mut line_output).unwrap();
+
+        assert_eq!(lines.lines().len(), 2);
+        assert_eq!(lines.lines()[0].text(), TextRange::new(0, 3));
+        assert_eq!(lines.lines()[0].advance(), 3);
+        assert_eq!(lines.lines()[1].text(), TextRange::new(3, 5));
+        assert_eq!(lines.lines()[1].advance(), 2);
+
+        let mut no_lines = [];
+        assert_eq!(
+            shaped.break_into(text, 3, &mut no_lines).err().unwrap(),
+            LayoutError::InsufficientLineCapacity { required: 2 }
+        );
+    }
+
+    #[test]
+    fn lets_unsafe_sequences_exceed_the_width() {
+        let text = "ab cd";
+        let mut glyphs = [ShapedGlyph::default(); 5];
+        for (index, glyph) in glyphs.iter_mut().enumerate() {
+            *glyph = ShapedGlyph::new(
+                GlyphId::new(index as u16),
+                TextRange::new(index as u32, index as u32 + 1),
+            );
+            glyph.advance.x = 1;
+        }
+        glyphs[3].set_unsafe_to_break(true);
+        let runs = [GlyphRun {
+            text: TextRange::new(0, 5),
+            glyphs: TextRange::new(0, 5),
+            face: FaceKey::new(1),
+            bidi_level: 0,
+        }];
+        let shaped = ShapedText {
+            text: TextRange::new(0, 5),
+            glyphs: &glyphs,
+            runs: &runs,
+        };
+        let mut line_output = [BrokenLine::empty(); 2];
+        let lines = shaped.break_into(text, 3, &mut line_output).unwrap();
+
+        assert_eq!(lines.lines()[0].text(), TextRange::new(0, 4));
+        assert_eq!(lines.lines()[0].advance(), 4);
+        assert_eq!(lines.lines()[1].text(), TextRange::new(4, 5));
     }
 }

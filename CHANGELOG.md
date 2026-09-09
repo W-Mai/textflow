@@ -7,6 +7,7 @@
 - Thai script and combining-mark classification.
 - Application-provided line-break opportunities through borrowed `LineBreakProvider` values.
 - Strict word wrapping with explicit `WordOrGrapheme` fallback.
+- Optional bounded shaping engine with separate font-data and script-provider interfaces.
 
 ## [0.1.0] - 2026-09-09
 

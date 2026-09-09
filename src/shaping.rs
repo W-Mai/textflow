@@ -2,6 +2,14 @@ use crate::bidi::Direction;
 use crate::unicode::{graphemes, line_breaks, LineBreak, LineBreaks, Script};
 use core::ops::Range;
 
+#[cfg(feature = "complex-shaping")]
+mod complex;
+#[cfg(feature = "complex-shaping")]
+pub use complex::{
+    GlyphBuffer, GlyphMask, LookupRequest, LookupStatus, ScriptProvider, ScriptTypeface,
+    ShapingData,
+};
+
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct FontId(u64);
@@ -146,6 +154,7 @@ impl<'a> ShapeRequest<'a> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ShapeError {
     InvalidTextRange,
+    InvalidGlyphRange,
     TextTooLong,
     InsufficientCapacity { required: usize },
     UnsupportedScript { script: Script },
@@ -520,17 +529,17 @@ pub trait GlyphSource {
     }
 }
 
-pub struct SimpleTypeface<'a, T> {
+pub struct SimpleTypeface<'a, T: ?Sized> {
     source: &'a T,
 }
 
-impl<'a, T> SimpleTypeface<'a, T> {
+impl<'a, T: ?Sized> SimpleTypeface<'a, T> {
     pub const fn new(source: &'a T) -> Self {
         Self { source }
     }
 }
 
-impl<T> Typeface for SimpleTypeface<'_, T>
+impl<T: ?Sized> Typeface for SimpleTypeface<'_, T>
 where
     T: GlyphSource,
 {

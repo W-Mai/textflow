@@ -25,5 +25,6 @@ alloc = ["shaping"]
 unicode = []
 bidi = ["unicode"]
 shaping = ["bidi"]
+complex-shaping = ["shaping"]
 
 [dependencies]

@@ -14,6 +14,8 @@ mod word;
 #[cfg(feature = "bidi")]
 pub mod bidi;
 #[cfg(feature = "shaping")]
+pub mod layout;
+#[cfg(feature = "shaping")]
 pub mod shaping;
 pub mod tests;
 #[cfg(feature = "unicode")]

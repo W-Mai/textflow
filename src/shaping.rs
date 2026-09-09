@@ -471,6 +471,10 @@ pub trait GlyphSource {
     fn glyph_for(&self, character: char) -> Result<Option<GlyphId>, TypefaceError>;
     fn glyph_advance(&self, glyph: GlyphId) -> Result<FlowPoint, TypefaceError>;
 
+    fn notdef_glyph(&self) -> Result<Option<GlyphId>, TypefaceError> {
+        Ok(Some(GlyphId::new(0)))
+    }
+
     fn kerning(&self, _left: GlyphId, _right: GlyphId) -> Result<i32, TypefaceError> {
         Ok(0)
     }
@@ -536,12 +540,15 @@ where
                     offset: request.range.start + cluster.range.start,
                 });
             }
-            let glyph_id = self
-                .source
-                .glyph_for(character)?
-                .ok_or(ShapeError::MissingGlyph {
-                    offset: request.range.start + cluster.range.start,
-                })?;
+            let glyph_id = match self.source.glyph_for(character)? {
+                Some(glyph) => glyph,
+                None => self
+                    .source
+                    .notdef_glyph()?
+                    .ok_or(ShapeError::MissingGlyph {
+                        offset: request.range.start + cluster.range.start,
+                    })?,
+            };
             let output_index = match request.direction {
                 Direction::LeftToRight => logical_index,
                 Direction::RightToLeft => required - logical_index - 1,
@@ -766,5 +773,21 @@ mod tests {
 
         assert!(request.line_edges.has_start());
         assert!(request.line_edges.has_end());
+    }
+
+    #[test]
+    fn uses_notdef_for_an_uncovered_scalar() {
+        let face = SimpleTypeface::new(&MockFont);
+        let text = "世";
+        let mut output = [ShapedGlyph::default(); 1];
+        let count = face
+            .shape_into(
+                &ShapeRequest::new(text, 0..text.len(), Direction::LeftToRight, Script::Han),
+                &mut output,
+            )
+            .unwrap();
+
+        assert_eq!(count, 1);
+        assert_eq!(output[0].glyph_id(), GlyphId::new(0));
     }
 }

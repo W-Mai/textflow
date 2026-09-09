@@ -26,6 +26,8 @@ extern crate std;
 
 use crate::line::Lines;
 
+#[cfg(feature = "shaping")]
+pub use crate::layout::WrapMode;
 pub use crate::line::Line;
 
 #[cfg(feature = "shaping")]
@@ -67,6 +69,8 @@ pub struct TextFlow<'a> {
     features: &'a [FontFeature],
     #[cfg(feature = "shaping")]
     origin: FlowPoint,
+    #[cfg(feature = "shaping")]
+    wrap: WrapMode,
 }
 
 impl<'a> TextFlow<'a> {
@@ -83,6 +87,8 @@ impl<'a> TextFlow<'a> {
             features: &[],
             #[cfg(feature = "shaping")]
             origin: FlowPoint { x: 0, y: 0 },
+            #[cfg(feature = "shaping")]
+            wrap: WrapMode::Word,
         };
 
         flow.lines = Lines::new(flow.text, flow.max_width, 4);
@@ -115,6 +121,12 @@ impl<'a> TextFlow<'a> {
     #[cfg(feature = "shaping")]
     pub const fn with_origin(mut self, origin: FlowPoint) -> Self {
         self.origin = origin;
+        self
+    }
+
+    #[cfg(feature = "shaping")]
+    pub const fn with_wrap(mut self, wrap: WrapMode) -> Self {
+        self.wrap = wrap;
         self
     }
 

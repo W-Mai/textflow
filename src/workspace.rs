@@ -131,7 +131,7 @@ impl TextWorkspace {
             &mut self.initial_glyphs,
             &mut self.initial_runs,
         )?;
-        let broken = shaped.break_into(flow.text, max_width, &mut self.broken)?;
+        let broken = shaped.break_into(flow.text, max_width, flow.wrap, &mut self.broken)?;
         Ok(logical.layout_into(
             flow.text,
             typefaces,

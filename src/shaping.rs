@@ -361,8 +361,39 @@ pub struct PositionedGlyph {
 }
 
 impl PositionedGlyph {
+    pub const fn new(glyph_id: GlyphId, origin: FlowPoint) -> Self {
+        Self {
+            glyph_id,
+            cluster: TextRange::new(0, 0),
+            origin,
+            advance: FlowPoint { x: 0, y: 0 },
+            offset: FlowPoint { x: 0, y: 0 },
+            bidi_level: 0,
+        }
+    }
+
     pub const fn glyph_id(self) -> GlyphId {
         self.glyph_id
+    }
+
+    pub const fn with_cluster(mut self, cluster: TextRange) -> Self {
+        self.cluster = cluster;
+        self
+    }
+
+    pub const fn with_advance(mut self, advance: FlowPoint) -> Self {
+        self.advance = advance;
+        self
+    }
+
+    pub const fn with_offset(mut self, offset: FlowPoint) -> Self {
+        self.offset = offset;
+        self
+    }
+
+    pub const fn with_bidi_level(mut self, bidi_level: u8) -> Self {
+        self.bidi_level = bidi_level;
+        self
     }
 }
 
@@ -617,6 +648,22 @@ fn kerning_enabled(features: &[FontFeature]) -> Result<bool, ShapeError> {
 mod tests {
     use super::*;
     use std::prelude::v1::*;
+
+    #[test]
+    fn positioned_glyph_builder_preserves_static_placement() {
+        let glyph = PositionedGlyph::new(GlyphId::new(7), FlowPoint { x: 10, y: 20 })
+            .with_cluster(TextRange::new(2, 4))
+            .with_advance(FlowPoint { x: 8, y: 0 })
+            .with_offset(FlowPoint { x: 1, y: -2 })
+            .with_bidi_level(1);
+
+        assert_eq!(glyph.glyph_id(), GlyphId::new(7));
+        assert_eq!(glyph.cluster, TextRange::new(2, 4));
+        assert_eq!(glyph.origin, FlowPoint { x: 10, y: 20 });
+        assert_eq!(glyph.advance, FlowPoint { x: 8, y: 0 });
+        assert_eq!(glyph.offset, FlowPoint { x: 1, y: -2 });
+        assert_eq!(glyph.bidi_level, 1);
+    }
 
     struct MockFont;
 

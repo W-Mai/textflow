@@ -1,3 +1,22 @@
+//! Bounded `no_std` Unicode text layout and shaping.
+//!
+//! [`TextFlow`] provides borrowed line layout with explicit width, height, and spacing metrics.
+//! The optional shaping pipeline adds bidirectional text, font fallback, safe line breaking,
+//! positioned glyphs, visual runs, and caret positions through caller-owned buffers.
+//!
+//! # Line layout
+//!
+//! ```
+//! use textflow::TextFlow;
+//!
+//! let text = "A small UI can still set type well.";
+//! let lines = TextFlow::new(text, 12)
+//!     .map(|line| line.text())
+//!     .collect::<Vec<_>>();
+//!
+//! assert_eq!(lines, ["A small UI", "can still", "set type", "well."]);
+//! ```
+
 #![no_std]
 
 #[cfg(feature = "alloc")]

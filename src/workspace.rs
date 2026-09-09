@@ -162,25 +162,25 @@ fn slots<T: Clone>(length: usize, value: T) -> Result<Vec<T>, WorkspaceError> {
 mod tests {
     use super::*;
     use crate::shaping::{
-        FaceKey, FlowPoint, FontMetrics, GlyphId, GlyphSource, SimpleTypeface, TypefaceError,
+        FlowPoint, FontAccessError, FontId, FontMetrics, GlyphId, GlyphSource, SimpleTypeface,
     };
 
     struct Source;
 
     impl GlyphSource for Source {
-        fn key(&self) -> FaceKey {
-            FaceKey::new(1)
+        fn id(&self) -> FontId {
+            FontId::new(1)
         }
 
-        fn metrics(&self) -> Result<FontMetrics, TypefaceError> {
+        fn metrics(&self) -> Result<FontMetrics, FontAccessError> {
             Ok(FontMetrics::default())
         }
 
-        fn glyph_for(&self, character: char) -> Result<Option<GlyphId>, TypefaceError> {
+        fn glyph_for(&self, character: char) -> Result<Option<GlyphId>, FontAccessError> {
             Ok(Some(GlyphId::new(character as u16)))
         }
 
-        fn glyph_advance(&self, _glyph: GlyphId) -> Result<FlowPoint, TypefaceError> {
+        fn glyph_advance(&self, _glyph: GlyphId) -> Result<FlowPoint, FontAccessError> {
             Ok(FlowPoint { x: 1, y: 0 })
         }
     }

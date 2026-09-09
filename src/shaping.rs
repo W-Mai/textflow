@@ -2,12 +2,17 @@ use crate::bidi::Direction;
 use crate::unicode::{graphemes, line_breaks, LineBreak, LineBreaks, Script};
 use core::ops::Range;
 
+#[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct FaceKey(u64);
+pub struct FontId(u64);
 
-impl FaceKey {
+impl FontId {
     pub const fn new(value: u64) -> Self {
         Self(value)
+    }
+
+    pub const fn value(self) -> u64 {
+        self.0
     }
 }
 
@@ -147,18 +152,18 @@ pub enum ShapeError {
     UnsupportedFeature { tag: [u8; 4] },
     UnsupportedCluster { offset: usize },
     MissingGlyph { offset: usize },
-    Source(TypefaceError),
+    Source(FontAccessError),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TypefaceError {
+pub enum FontAccessError {
     Unavailable,
     Malformed,
     Unsupported,
 }
 
-impl From<TypefaceError> for ShapeError {
-    fn from(error: TypefaceError) -> Self {
+impl From<FontAccessError> for ShapeError {
+    fn from(error: FontAccessError) -> Self {
         Self::Source(error)
     }
 }
@@ -204,7 +209,7 @@ impl ShapedGlyph {
 }
 
 pub struct ShapedRun<'a> {
-    face: FaceKey,
+    font_id: FontId,
     text: TextRange,
     bidi_level: u8,
     glyphs: &'a [ShapedGlyph],
@@ -212,21 +217,21 @@ pub struct ShapedRun<'a> {
 
 impl<'a> ShapedRun<'a> {
     pub const fn new(
-        face: FaceKey,
+        font_id: FontId,
         text: TextRange,
         bidi_level: u8,
         glyphs: &'a [ShapedGlyph],
     ) -> Self {
         Self {
-            face,
+            font_id,
             text,
             bidi_level,
             glyphs,
         }
     }
 
-    pub const fn face(&self) -> FaceKey {
-        self.face
+    pub const fn font_id(&self) -> FontId {
+        self.font_id
     }
 
     pub const fn text(&self) -> TextRange {
@@ -308,7 +313,7 @@ impl<'a> ShapedRun<'a> {
                 .ok_or(PositionError::CoordinateOverflow)?;
         }
         Ok(PositionedRun {
-            face: self.face,
+            font_id: self.font_id,
             text: self.text,
             direction: self.direction(),
             bidi_level: self.bidi_level,
@@ -361,7 +366,7 @@ impl PositionedGlyph {
 }
 
 pub struct PositionedRun<'a> {
-    face: FaceKey,
+    font_id: FontId,
     text: TextRange,
     direction: Direction,
     bidi_level: u8,
@@ -370,8 +375,8 @@ pub struct PositionedRun<'a> {
 }
 
 impl PositionedRun<'_> {
-    pub const fn face(&self) -> FaceKey {
-        self.face
+    pub const fn font_id(&self) -> FontId {
+        self.font_id
     }
 
     pub const fn text(&self) -> TextRange {
@@ -455,9 +460,9 @@ pub struct CaretStop {
 }
 
 pub trait Typeface {
-    fn key(&self) -> FaceKey;
-    fn metrics(&self) -> Result<FontMetrics, TypefaceError>;
-    fn covers(&self, grapheme: &str) -> Result<bool, TypefaceError>;
+    fn id(&self) -> FontId;
+    fn metrics(&self) -> Result<FontMetrics, FontAccessError>;
+    fn covers(&self, grapheme: &str) -> Result<bool, FontAccessError>;
     fn shape_into(
         &self,
         request: &ShapeRequest<'_>,
@@ -466,16 +471,16 @@ pub trait Typeface {
 }
 
 pub trait GlyphSource {
-    fn key(&self) -> FaceKey;
-    fn metrics(&self) -> Result<FontMetrics, TypefaceError>;
-    fn glyph_for(&self, character: char) -> Result<Option<GlyphId>, TypefaceError>;
-    fn glyph_advance(&self, glyph: GlyphId) -> Result<FlowPoint, TypefaceError>;
+    fn id(&self) -> FontId;
+    fn metrics(&self) -> Result<FontMetrics, FontAccessError>;
+    fn glyph_for(&self, character: char) -> Result<Option<GlyphId>, FontAccessError>;
+    fn glyph_advance(&self, glyph: GlyphId) -> Result<FlowPoint, FontAccessError>;
 
-    fn notdef_glyph(&self) -> Result<Option<GlyphId>, TypefaceError> {
+    fn notdef_glyph(&self) -> Result<Option<GlyphId>, FontAccessError> {
         Ok(Some(GlyphId::new(0)))
     }
 
-    fn kerning(&self, _left: GlyphId, _right: GlyphId) -> Result<i32, TypefaceError> {
+    fn kerning(&self, _left: GlyphId, _right: GlyphId) -> Result<i32, FontAccessError> {
         Ok(0)
     }
 }
@@ -494,15 +499,15 @@ impl<T> Typeface for SimpleTypeface<'_, T>
 where
     T: GlyphSource,
 {
-    fn key(&self) -> FaceKey {
-        self.source.key()
+    fn id(&self) -> FontId {
+        self.source.id()
     }
 
-    fn metrics(&self) -> Result<FontMetrics, TypefaceError> {
+    fn metrics(&self) -> Result<FontMetrics, FontAccessError> {
         self.source.metrics()
     }
 
-    fn covers(&self, grapheme: &str) -> Result<bool, TypefaceError> {
+    fn covers(&self, grapheme: &str) -> Result<bool, FontAccessError> {
         let mut characters = grapheme.chars();
         let Some(character) = characters.next() else {
             return Ok(false);
@@ -608,11 +613,11 @@ mod tests {
     struct MockFont;
 
     impl GlyphSource for MockFont {
-        fn key(&self) -> FaceKey {
-            FaceKey::new(4)
+        fn id(&self) -> FontId {
+            FontId::new(4)
         }
 
-        fn metrics(&self) -> Result<FontMetrics, TypefaceError> {
+        fn metrics(&self) -> Result<FontMetrics, FontAccessError> {
             Ok(FontMetrics {
                 units_per_em: 1000,
                 ascender: 800,
@@ -621,17 +626,17 @@ mod tests {
             })
         }
 
-        fn glyph_for(&self, character: char) -> Result<Option<GlyphId>, TypefaceError> {
+        fn glyph_for(&self, character: char) -> Result<Option<GlyphId>, FontAccessError> {
             Ok(character
                 .is_ascii()
                 .then_some(GlyphId::new(character as u16)))
         }
 
-        fn glyph_advance(&self, _glyph: GlyphId) -> Result<FlowPoint, TypefaceError> {
+        fn glyph_advance(&self, _glyph: GlyphId) -> Result<FlowPoint, FontAccessError> {
             Ok(FlowPoint { x: 600, y: 0 })
         }
 
-        fn kerning(&self, left: GlyphId, right: GlyphId) -> Result<i32, TypefaceError> {
+        fn kerning(&self, left: GlyphId, right: GlyphId) -> Result<i32, FontAccessError> {
             Ok(
                 if left.value() == b'A' as u16 && right.value() == b'V' as u16 {
                     -80
@@ -708,7 +713,7 @@ mod tests {
             ShapedGlyph::new(GlyphId::new(2), TextRange::new(3, 4)),
         ];
         glyphs[1].set_unsafe_to_break(true);
-        let run = ShapedRun::new(FaceKey::new(4), TextRange::new(0, 4), 0, &glyphs);
+        let run = ShapedRun::new(FontId::new(4), TextRange::new(0, 4), 0, &glyphs);
 
         assert!(run.is_safe_break(0));
         assert!(!run.is_safe_break(1));
@@ -729,7 +734,7 @@ mod tests {
         }
         glyphs[6].set_unsafe_to_break(true);
         let run = ShapedRun::new(
-            FaceKey::new(4),
+            FontId::new(4),
             TextRange::new(0, text.len() as u32),
             0,
             &glyphs,
@@ -748,7 +753,7 @@ mod tests {
         ];
         glyphs[0].advance.x = 3;
         glyphs[1].advance.x = 4;
-        let run = ShapedRun::new(FaceKey::new(4), TextRange::new(0, 2), 0, &glyphs);
+        let run = ShapedRun::new(FontId::new(4), TextRange::new(0, 2), 0, &glyphs);
         let mut positioned = [PositionedGlyph::default(); 2];
         let positioned = run
             .position_into(FlowPoint { x: 10, y: 20 }, &mut positioned)

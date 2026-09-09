@@ -1,7 +1,7 @@
 use crate::bidi::BidiText;
 use crate::shaping::{
-    CaretStop, FaceKey, FlowPoint, FontFeature, LineEdges, PositionError, PositionedGlyph,
-    ShapeError, ShapeRequest, ShapedGlyph, ShapedRun, TextRange, Typeface, TypefaceError,
+    CaretStop, FlowPoint, FontAccessError, FontFeature, FontId, LineEdges, PositionError,
+    PositionedGlyph, ShapeError, ShapeRequest, ShapedGlyph, ShapedRun, TextRange, Typeface,
 };
 use crate::unicode::{graphemes, line_breaks, script_runs, LineBreakKind, LineBreaks, Script};
 use core::iter::Peekable;
@@ -11,7 +11,7 @@ use crate::buffer::SliceWriter;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LogicalRun {
     text: TextRange,
-    face: u16,
+    typeface: u16,
     script: Script,
     bidi_level: u8,
 }
@@ -20,7 +20,7 @@ impl LogicalRun {
     pub const fn empty() -> Self {
         Self {
             text: TextRange::new(0, 0),
-            face: 0,
+            typeface: 0,
             script: Script::Common,
             bidi_level: 0,
         }
@@ -30,8 +30,8 @@ impl LogicalRun {
         self.text
     }
 
-    pub const fn face_index(self) -> usize {
-        self.face as usize
+    pub const fn typeface_index(self) -> usize {
+        self.typeface as usize
     }
 
     pub const fn script(self) -> Script {
@@ -46,7 +46,7 @@ impl LogicalRun {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LayoutError {
     NoTypeface,
-    TooManyFaces,
+    TooManyTypefaces,
     InsufficientRunCapacity { required: usize },
     InsufficientGlyphCapacity { minimum: usize },
     InsufficientLineCapacity { required: usize },
@@ -58,13 +58,13 @@ pub enum LayoutError {
     InvalidWidth,
     InvalidLineHeight,
     CoordinateOverflow,
-    Typeface(TypefaceError),
+    Font(FontAccessError),
     Shape { run: usize, error: ShapeError },
 }
 
-impl From<TypefaceError> for LayoutError {
-    fn from(error: TypefaceError) -> Self {
-        Self::Typeface(error)
+impl From<FontAccessError> for LayoutError {
+    fn from(error: FontAccessError) -> Self {
+        Self::Font(error)
     }
 }
 
@@ -84,7 +84,7 @@ impl<'a> LogicalRuns<'a> {
             return Err(LayoutError::NoTypeface);
         }
         if typefaces.len() > u16::MAX as usize {
-            return Err(LayoutError::TooManyFaces);
+            return Err(LayoutError::TooManyTypefaces);
         }
         let paragraph = bidi.text();
         if paragraph.end > u32::MAX as usize {
@@ -107,10 +107,10 @@ impl<'a> LogicalRuns<'a> {
                 for cluster in graphemes(&text[script_start..script_end]) {
                     let start = script_start + cluster.range.start;
                     let end = script_start + cluster.range.end;
-                    let face = select_typeface(cluster.text, typefaces)?;
+                    let typeface = select_typeface(cluster.text, typefaces)?;
                     writer.push(LogicalRun {
                         text: TextRange::new(start as u32, end as u32),
-                        face,
+                        typeface,
                         script: script_run.script,
                         bidi_level: bidi_run.level,
                     });
@@ -147,7 +147,7 @@ impl<'a> LogicalRuns<'a> {
         }
         let mut glyph_count = 0;
         for (run_index, logical) in self.runs.iter().enumerate() {
-            let Some(typeface) = typefaces.get(logical.face_index()) else {
+            let Some(typeface) = typefaces.get(logical.typeface_index()) else {
                 return Err(LayoutError::InvalidRun);
             };
             let range = logical.text.start as usize..logical.text.end as usize;
@@ -184,7 +184,7 @@ impl<'a> LogicalRuns<'a> {
             runs[run_index] = GlyphRun {
                 text: logical.text,
                 glyphs: TextRange::new(glyph_count as u32, end as u32),
-                face: typeface.key(),
+                font_id: typeface.id(),
                 bidi_level: logical.bidi_level,
             };
             glyph_count = end;
@@ -331,14 +331,14 @@ impl<'output> ParagraphBuilder<'output> {
             let Some(text) = intersection(logical.text, broken.text) else {
                 continue;
             };
-            let Some(typeface) = typefaces.get(logical.face_index()) else {
+            let Some(typeface) = typefaces.get(logical.typeface_index()) else {
                 return Err(LayoutError::InvalidRun);
             };
             self.buffers.runs[self.run_count] = VisualRun {
                 text,
                 glyphs: TextRange::new(0, 0),
-                face: typeface.key(),
-                face_index: logical.face,
+                font_id: typeface.id(),
+                typeface_index: logical.typeface,
                 script: logical.script,
                 bidi_level: logical.bidi_level,
             };
@@ -369,7 +369,7 @@ impl<'output> ParagraphBuilder<'output> {
         origin: FlowPoint,
     ) -> Result<FlowPoint, LayoutError> {
         let mut visual = self.buffers.runs[run_index];
-        let Some(typeface) = input.typefaces.get(visual.face_index as usize) else {
+        let Some(typeface) = input.typefaces.get(visual.typeface_index as usize) else {
             return Err(LayoutError::InvalidRun);
         };
         let request = ShapeRequest::new(
@@ -408,7 +408,7 @@ impl<'output> ParagraphBuilder<'output> {
             return Err(LayoutError::InsufficientPositionedCapacity { minimum: glyph_end });
         }
         let shaped = ShapedRun::new(
-            visual.face,
+            visual.font_id,
             visual.text,
             visual.bidi_level,
             &self.buffers.scratch[..count],
@@ -471,7 +471,7 @@ impl<'a> LogicalRunWriter<'a> {
     fn push(&mut self, run: LogicalRun) {
         if let Some(previous) = self.last.as_mut() {
             if previous.text.end == run.text.start
-                && previous.face == run.face
+                && previous.typeface == run.typeface
                 && previous.script == run.script
                 && previous.bidi_level == run.bidi_level
             {
@@ -493,7 +493,7 @@ impl<'a> LogicalRunWriter<'a> {
     }
 }
 
-fn select_typeface(grapheme: &str, typefaces: &[&dyn Typeface]) -> Result<u16, TypefaceError> {
+fn select_typeface(grapheme: &str, typefaces: &[&dyn Typeface]) -> Result<u16, FontAccessError> {
     for (index, typeface) in typefaces.iter().enumerate() {
         if typeface.covers(grapheme)? {
             return Ok(index as u16);
@@ -506,7 +506,7 @@ fn select_typeface(grapheme: &str, typefaces: &[&dyn Typeface]) -> Result<u16, T
 pub struct GlyphRun {
     text: TextRange,
     glyphs: TextRange,
-    face: FaceKey,
+    font_id: FontId,
     bidi_level: u8,
 }
 
@@ -515,7 +515,7 @@ impl GlyphRun {
         Self {
             text: TextRange::new(0, 0),
             glyphs: TextRange::new(0, 0),
-            face: FaceKey::new(0),
+            font_id: FontId::new(0),
             bidi_level: 0,
         }
     }
@@ -528,8 +528,8 @@ impl GlyphRun {
         self.glyphs
     }
 
-    pub const fn face(self) -> FaceKey {
-        self.face
+    pub const fn font_id(self) -> FontId {
+        self.font_id
     }
 
     pub const fn bidi_level(self) -> u8 {
@@ -561,7 +561,12 @@ impl ShapedText<'_> {
         let glyphs = self
             .glyphs
             .get(run.glyphs.start as usize..run.glyphs.end as usize)?;
-        Some(ShapedRun::new(run.face, run.text, run.bidi_level, glyphs))
+        Some(ShapedRun::new(
+            run.font_id,
+            run.text,
+            run.bidi_level,
+            glyphs,
+        ))
     }
 
     pub fn is_safe_break(&self, offset: u32) -> bool {
@@ -862,8 +867,8 @@ impl<'a> LayoutBuffers<'a> {
 pub struct VisualRun {
     text: TextRange,
     glyphs: TextRange,
-    face: FaceKey,
-    face_index: u16,
+    font_id: FontId,
+    typeface_index: u16,
     script: Script,
     bidi_level: u8,
 }
@@ -873,8 +878,8 @@ impl VisualRun {
         Self {
             text: TextRange::new(0, 0),
             glyphs: TextRange::new(0, 0),
-            face: FaceKey::new(0),
-            face_index: 0,
+            font_id: FontId::new(0),
+            typeface_index: 0,
             script: Script::Common,
             bidi_level: 0,
         }
@@ -888,8 +893,8 @@ impl VisualRun {
         self.glyphs
     }
 
-    pub const fn face(self) -> FaceKey {
-        self.face
+    pub const fn font_id(self) -> FontId {
+        self.font_id
     }
 
     pub const fn bidi_level(self) -> u8 {
@@ -1052,7 +1057,7 @@ fn caret_error(error: PositionError, current: usize) -> LayoutError {
 mod tests {
     use super::*;
     use crate::bidi::{BaseDirection, BidiRun};
-    use crate::shaping::{FaceKey, FlowPoint, FontMetrics, GlyphId, GlyphSource, SimpleTypeface};
+    use crate::shaping::{FlowPoint, FontId, FontMetrics, GlyphId, GlyphSource, SimpleTypeface};
     use std::prelude::v1::*;
 
     struct Source {
@@ -1061,20 +1066,20 @@ mod tests {
     }
 
     impl GlyphSource for Source {
-        fn key(&self) -> FaceKey {
-            FaceKey::new(self.key)
+        fn id(&self) -> FontId {
+            FontId::new(self.key)
         }
 
-        fn metrics(&self) -> Result<FontMetrics, TypefaceError> {
+        fn metrics(&self) -> Result<FontMetrics, FontAccessError> {
             Ok(FontMetrics::default())
         }
 
-        fn glyph_for(&self, character: char) -> Result<Option<GlyphId>, TypefaceError> {
+        fn glyph_for(&self, character: char) -> Result<Option<GlyphId>, FontAccessError> {
             let covered = character.is_ascii() == self.ascii;
             Ok(covered.then_some(GlyphId::new(character as u16)))
         }
 
-        fn glyph_advance(&self, _glyph: GlyphId) -> Result<FlowPoint, TypefaceError> {
+        fn glyph_advance(&self, _glyph: GlyphId) -> Result<FlowPoint, FontAccessError> {
             Ok(FlowPoint { x: 1, y: 0 })
         }
     }
@@ -1082,15 +1087,15 @@ mod tests {
     struct EdgeTypeface;
 
     impl Typeface for EdgeTypeface {
-        fn key(&self) -> FaceKey {
-            FaceKey::new(9)
+        fn id(&self) -> FontId {
+            FontId::new(9)
         }
 
-        fn metrics(&self) -> Result<FontMetrics, TypefaceError> {
+        fn metrics(&self) -> Result<FontMetrics, FontAccessError> {
             Ok(FontMetrics::default())
         }
 
-        fn covers(&self, _grapheme: &str) -> Result<bool, TypefaceError> {
+        fn covers(&self, _grapheme: &str) -> Result<bool, FontAccessError> {
             Ok(true)
         }
 
@@ -1125,15 +1130,15 @@ mod tests {
     struct InvalidTypeface;
 
     impl Typeface for InvalidTypeface {
-        fn key(&self) -> FaceKey {
-            FaceKey::new(10)
+        fn id(&self) -> FontId {
+            FontId::new(10)
         }
 
-        fn metrics(&self) -> Result<FontMetrics, TypefaceError> {
+        fn metrics(&self) -> Result<FontMetrics, FontAccessError> {
             Ok(FontMetrics::default())
         }
 
-        fn covers(&self, _grapheme: &str) -> Result<bool, TypefaceError> {
+        fn covers(&self, _grapheme: &str) -> Result<bool, FontAccessError> {
             Ok(true)
         }
 
@@ -1169,10 +1174,10 @@ mod tests {
         let runs = LogicalRuns::resolve(text, &bidi, &typefaces, &mut output).unwrap();
 
         assert_eq!(runs.runs().len(), 3);
-        assert_eq!(runs.runs()[0].face_index(), 0);
-        assert_eq!(runs.runs()[1].face_index(), 1);
+        assert_eq!(runs.runs()[0].typeface_index(), 0);
+        assert_eq!(runs.runs()[1].typeface_index(), 1);
         assert_eq!(runs.runs()[1].script(), Script::Han);
-        assert_eq!(runs.runs()[2].face_index(), 0);
+        assert_eq!(runs.runs()[2].typeface_index(), 0);
     }
 
     #[test]
@@ -1200,8 +1205,8 @@ mod tests {
 
         assert_eq!(shaped.glyphs().len(), 4);
         assert_eq!(shaped.runs().len(), 2);
-        assert_eq!(shaped.run(0).unwrap().face(), FaceKey::new(1));
-        assert_eq!(shaped.run(1).unwrap().face(), FaceKey::new(2));
+        assert_eq!(shaped.run(0).unwrap().font_id(), FontId::new(1));
+        assert_eq!(shaped.run(1).unwrap().font_id(), FontId::new(2));
     }
 
     #[test]
@@ -1299,7 +1304,7 @@ mod tests {
         let runs = [GlyphRun {
             text: TextRange::new(0, 5),
             glyphs: TextRange::new(0, 5),
-            face: FaceKey::new(1),
+            font_id: FontId::new(1),
             bidi_level: 0,
         }];
         let shaped = ShapedText {
@@ -1365,7 +1370,7 @@ mod tests {
         assert_eq!(layout.lines()[0].origin(), FlowPoint { x: 5, y: 7 });
         assert_eq!(layout.lines()[1].origin(), FlowPoint { x: 5, y: 17 });
         assert_eq!(layout.runs().len(), 2);
-        assert_eq!(layout.runs()[0].face(), FaceKey::new(9));
+        assert_eq!(layout.runs()[0].font_id(), FontId::new(9));
         assert_eq!(layout.glyphs().len(), 5);
         assert_eq!(layout.carets().len(), 7);
     }

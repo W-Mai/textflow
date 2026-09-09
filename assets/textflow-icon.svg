@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 224 224" role="img" aria-labelledby="title desc">
+  <title id="title">TextFlow mark</title>
+  <desc id="desc">Three rust-colored text lines flow into an inclined lowercase f.</desc>
+  <defs>
+    <linearGradient id="middle-bridge" gradientUnits="userSpaceOnUse" x1="97.94" y1="0" x2="117.21" y2="0">
+      <stop class="bridge-start" offset="0"/>
+      <stop class="bridge-end" offset="1"/>
+    </linearGradient>
+  </defs>
+  <style>
+    .line-top { fill: #f2a184; }
+    .line-middle { fill: #e66a4a; }
+    .bridge { fill: url(#middle-bridge); }
+    .line-bottom, .mark { fill: #ce422b; }
+    .bridge-start { stop-color: #e66a4a; }
+    .bridge-end { stop-color: #ce422b; }
+    @media (prefers-color-scheme: dark) {
+      .line-top { fill: #ffc0aa; }
+      .line-bottom, .mark { fill: #e3573c; }
+      .bridge-start { stop-color: #f58062; }
+      .bridge-end { stop-color: #e3573c; }
+    }
+  </style>
+  <g transform="translate(52.5 0) skewX(-9)">
+    <path class="line-top" d="M12 89.08h85.94v9.56H12Z"/>
+    <path class="line-middle" d="M12 114.17h85.94v11.95H12Z"/>
+    <path class="bridge" d="M97.94 114.17h19.27v11.95H97.94Z"/>
+    <path class="line-bottom" d="M12 161.06h85.94V176H12Z"/>
+    <path class="mark" d="M117.21 89.08h29.51v9.56h-19.27v15.53h19.27v11.95h-19.27V176h-10.24Z"/>
+  </g>
+</svg>

@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 224" role="img" aria-labelledby="title desc">
+  <title id="title">TextFlow</title>
+  <desc id="desc">Three rust-colored text lines flow into an inclined lowercase f beside a matching textflow wordmark with a connected tfl ligature.</desc>
+  <defs>
+    <linearGradient id="middle-bridge" gradientUnits="userSpaceOnUse" x1="97.94" y1="0" x2="117.21" y2="0">
+      <stop class="bridge-start" offset="0"/>
+      <stop class="bridge-end" offset="1"/>
+    </linearGradient>
+    <linearGradient id="word-flow" gradientUnits="userSpaceOnUse" x1="166" y1="0" x2="676" y2="0">
+      <stop class="word-start" offset="0"/>
+      <stop class="word-start" offset="0.42"/>
+      <stop class="word-turn" offset="0.62"/>
+      <stop class="word-end" offset="1"/>
+    </linearGradient>
+  </defs>
+  <style>
+    .line-top { fill: #f2a184; }
+    .line-middle { fill: #e66a4a; }
+    .bridge { fill: url(#middle-bridge); }
+    .line-bottom, .mark { fill: #ce422b; }
+    .bridge-start { stop-color: #e66a4a; }
+    .bridge-end { stop-color: #ce422b; }
+    .wordmark { fill: url(#word-flow); }
+    .word-start { stop-color: #3949b8; }
+    .word-turn { stop-color: #2479c4; }
+    .word-end { stop-color: #00a38c; }
+    @media (prefers-color-scheme: dark) {
+      .line-top { fill: #ffc0aa; }
+      .line-bottom, .mark { fill: #e3573c; }
+      .bridge-start { stop-color: #f58062; }
+      .bridge-end { stop-color: #e3573c; }
+      .word-start { stop-color: #91a0ff; }
+      .word-turn { stop-color: #55b9f3; }
+      .word-end { stop-color: #45dfbf; }
+    }
+  </style>
+
+  <g transform="translate(30 0) skewX(-9)">
+    <path class="line-top" d="M12 89.08h85.94v9.56H12Z"/>
+    <path class="line-middle" d="M12 114.17h85.94v11.95H12Z"/>
+    <path class="bridge" d="M97.94 114.17h19.27v11.95H97.94Z"/>
+    <path class="line-bottom" d="M12 161.06h85.94V176H12Z"/>
+    <path class="mark" d="M117.21 89.08h29.51v9.56h-19.27v15.53h19.27v11.95h-19.27V176h-10.24Z"/>
+  </g>
+
+  <defs>
+    <mask id="wordmark-mask" maskUnits="userSpaceOnUse" x="146" y="75" width="540" height="110">
+      <g fill="#fff" transform="translate(186 0) skewX(-9) scale(1.15 1)">
+        <path d="M48.25 176H23.45v-51.08h-12.4v-9.7h12.4V97.3h10.24v17.92h14.56v9.7H33.69v41.38h14.56Z"/>
+        <path transform="translate(-13 0)" d="M82.13 151.2v15.1h31.94v9.7H71.35v-60.78h42.45v35.98Zm0-9.97h21.83v-16.04H82.13Z"/>
+        <path transform="translate(-20 0)" d="M186.9 176h-13.61l-13.75-24.8h-2.56L143.23 176H130.3l17.38-31.8-16.04-28.98h12.94l12.4 24.93h2.56l12.4-24.93h13.48l-15.91 28.98Z"/>
+        <path transform="translate(-29 0)" d="M240.19 176h-24.8v-51.08h-12.4v-9.7h12.4V97.3h10.24v17.92h14.56v9.7h-14.56v41.38h14.56Z"/>
+        <path transform="translate(-45 0)" d="M263.29 115.36h13.21V89.08h29.51v9.56h-19.27v16.72h19.27v9.56h-19.27V176H276.5v-51.08h-13.21Z"/>
+        <path transform="translate(-58 0)" d="M329.11 84.9V176h10.24V84.9Z"/>
+        <path transform="translate(-71 0)" d="M362.32 176v-60.78h42.72V176Zm32.61-50.81-21.83.14v40.97h21.83Z"/>
+        <path transform="translate(-84 0)" d="M459.81 115.22h11.05v51.08h21.57v-51.08h10.24V176h-74.53v-60.78h10.78v51.08h20.89Z"/>
+        <rect x="210.8" y="115.22" width="7.8" height="9.7"/>
+        <rect x="260.7" y="89.08" width="10.7" height="9.56"/>
+      </g>
+    </mask>
+  </defs>
+  <rect class="wordmark" x="146" y="75" width="540" height="110" mask="url(#wordmark-mask)"/>
+</svg>

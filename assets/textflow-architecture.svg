@@ -1,0 +1,207 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 500" role="img" aria-labelledby="title desc">
+  <title id="title">TextFlow architecture</title>
+  <desc id="desc">UTF-8 text moves through Unicode analysis, bidirectional resolution, shaping with typeface fallback, and bounded line layout into visual runs and positioned glyphs. Typeface adapters and caller-owned buffers feed the pipeline.</desc>
+  <defs>
+    <linearGradient id="surface" x1="0" y1="0" x2="1" y2="1">
+      <stop class="surface-start" offset="0"/>
+      <stop class="surface-end" offset="1"/>
+    </linearGradient>
+    <linearGradient id="flow" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#ce422b" offset="0"/>
+      <stop stop-color="#3949b8" offset="0.38"/>
+      <stop stop-color="#2479c4" offset="0.68"/>
+      <stop stop-color="#00a38c" offset="1"/>
+    </linearGradient>
+    <linearGradient id="input-card" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#ef8a68" offset="0"/>
+      <stop stop-color="#ce422b" offset="1"/>
+    </linearGradient>
+    <linearGradient id="output" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#2479c4" offset="0"/>
+      <stop stop-color="#00a38c" offset="1"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#172033" flood-opacity="0.1"/>
+    </filter>
+    <filter id="z-blur" x="-25%" y="-25%" width="150%" height="170%">
+      <feGaussianBlur stdDeviation="6"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path class="arrow" d="M1 1 9 5 1 9Z"/>
+    </marker>
+  </defs>
+  <style>
+    .surface-start { stop-color: #ffffff; }
+    .surface-end { stop-color: #f3f7fb; }
+    .frame { fill: url(#surface); stroke: #d9e2ec; }
+    .card { fill: #ffffff; stroke: #d7e1eb; }
+    .card-soft { fill: #f7f9fc; stroke: #d7e1eb; }
+    .title { fill: #172033; font: 700 25px ui-sans-serif, system-ui, sans-serif; letter-spacing: -0.4px; }
+    .eyebrow { fill: #5b6b80; font: 600 12px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 1.3px; }
+    .label { fill: #172033; font: 700 16px ui-sans-serif, system-ui, sans-serif; }
+    .copy { fill: #65758a; font: 500 12px ui-sans-serif, system-ui, sans-serif; }
+    .code { fill: #41536a; font: 600 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .pill { fill: #edf2f7; }
+    .connector { fill: none; stroke: #91a1b5; stroke-width: 2; marker-end: url(#arrow); }
+    .arrow { fill: #91a1b5; }
+    .flow-line { fill: none; stroke: url(#flow); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 5 9; animation: stream 2.6s linear infinite; }
+    .support { fill: none; stroke: #9aabc0; stroke-width: 1.8; stroke-dasharray: 4 6; marker-end: url(#arrow); }
+    .port { opacity: .9; }
+    .stage {
+      animation: lift 12s cubic-bezier(.4, 0, .2, 1) infinite;
+      transform-box: fill-box;
+      transform-origin: center;
+    }
+    .z-shadow {
+      fill: #172033;
+      opacity: .1;
+      animation: depth-shadow 12s cubic-bezier(.4, 0, .2, 1) infinite;
+      transform-box: fill-box;
+      transform-origin: center;
+    }
+    .stage-0 { animation-delay: 0s; }
+    .stage-1 { animation-delay: 1.7s; }
+    .stage-2 { animation-delay: 3.4s; }
+    .stage-3 { animation-delay: 5.1s; }
+    .stage-4 { animation-delay: 6.8s; }
+    .stage-5 { animation-delay: 8.5s; }
+    @keyframes stream { to { stroke-dashoffset: -28; } }
+    @keyframes lift {
+      0%, 14%, 100% { transform: scale(1); }
+      5%, 8% { transform: translateY(-5px) scale(1.04); }
+    }
+    @keyframes depth-shadow {
+      0%, 14%, 100% {
+        opacity: .1;
+        transform: translateY(2px) scale(.98, .94);
+      }
+      5%, 8% {
+        opacity: .24;
+        transform: translateY(11px) scale(1.1, .9);
+      }
+    }
+    @media (prefers-color-scheme: dark) {
+      .surface-start { stop-color: #111827; }
+      .surface-end { stop-color: #09111e; }
+      .frame { stroke: #2b3a50; }
+      .card { fill: #121d2d; stroke: #33445b; }
+      .card-soft { fill: #0d1726; stroke: #33445b; }
+      .title, .label { fill: #f1f5f9; }
+      .eyebrow, .copy { fill: #9eabc0; }
+      .code { fill: #c3cede; }
+      .pill { fill: #1c2a3d; }
+      .connector, .support { stroke: #53657e; }
+      .arrow { fill: #53657e; }
+      .z-shadow { fill: #000; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .flow-line, .stage, .z-shadow { animation: none; }
+      .z-shadow { opacity: .1; transform: translateY(2px) scale(.98, .94); }
+    }
+  </style>
+
+  <rect class="frame" x="1" y="1" width="1198" height="498" rx="30"/>
+
+  <text class="eyebrow" x="48" y="48">BOUNDED TEXT PIPELINE</text>
+  <text class="title" x="48" y="82">Text becomes positioned geometry</text>
+  <g transform="translate(892 44)">
+    <rect class="pill" width="260" height="35" rx="17.5"/>
+    <circle cx="20" cy="17.5" r="5" fill="#00a38c"/>
+    <text class="code" x="34" y="21.5">no_std · explicit capacity</text>
+  </g>
+
+  <rect class="z-shadow stage-0" x="44" y="127" width="150" height="148" rx="18" filter="url(#z-blur)"/>
+  <rect class="z-shadow stage-1" x="224" y="127" width="170" height="148" rx="18" filter="url(#z-blur)"/>
+  <rect class="z-shadow stage-2" x="424" y="127" width="150" height="148" rx="18" filter="url(#z-blur)"/>
+  <rect class="z-shadow stage-3" x="604" y="127" width="180" height="148" rx="18" filter="url(#z-blur)"/>
+  <rect class="z-shadow stage-4" x="814" y="127" width="170" height="148" rx="18" filter="url(#z-blur)"/>
+  <rect class="z-shadow stage-5" x="1014" y="127" width="142" height="148" rx="18" filter="url(#z-blur)"/>
+
+  <path class="flow-line" d="M194 201H224M394 201H424M574 201H604M784 201H814M984 201H1014"/>
+  <path class="connector" d="M194 201H224"/>
+  <path class="connector" d="M394 201H424"/>
+  <path class="connector" d="M574 201H604"/>
+  <path class="connector" d="M784 201H814"/>
+  <path class="connector" d="M984 201H1014"/>
+
+  <g class="stage stage-0">
+    <rect x="44" y="127" width="150" height="148" rx="18" fill="url(#input-card)"/>
+    <circle class="port" cx="176" cy="145" r="5" fill="#fff" fill-opacity=".88"/>
+    <text x="66" y="158" fill="#fff1ec" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" font-weight="600" letter-spacing="1.3">INPUT</text>
+    <text x="66" y="188" fill="#fff" font-family="ui-sans-serif, system-ui, sans-serif" font-size="16" font-weight="700">UTF-8 text</text>
+    <text x="66" y="214" fill="#fff1ec" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" font-weight="500">borrowed source</text>
+    <rect x="66" y="231" width="92" height="24" rx="8" fill="#fff" fill-opacity=".18"/>
+    <text x="78" y="247" fill="#fff" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="600">&amp;str + width</text>
+  </g>
+
+  <g class="stage stage-1">
+    <rect class="card" x="224" y="127" width="170" height="148" rx="18"/>
+    <circle class="port delay-1" cx="376" cy="145" r="5" fill="#5261ce"/>
+    <text class="eyebrow" x="246" y="158">ANALYZE</text>
+    <text class="label" x="246" y="188">Unicode</text>
+    <text class="copy" x="246" y="214">graphemes · scripts</text>
+    <text class="copy" x="246" y="234">safe line breaks</text>
+    <rect class="pill" x="246" y="247" width="112" height="20" rx="7"/>
+    <text class="code" x="256" y="261">core-only tables</text>
+  </g>
+
+  <g class="stage stage-2">
+    <rect class="card" x="424" y="127" width="150" height="148" rx="18"/>
+    <circle class="port delay-2" cx="556" cy="145" r="5" fill="#3949b8"/>
+    <text class="eyebrow" x="446" y="158">RESOLVE</text>
+    <text class="label" x="446" y="188">Bidi</text>
+    <text class="copy" x="446" y="214">logical runs</text>
+    <text class="copy" x="446" y="234">visual order</text>
+    <rect class="pill" x="446" y="247" width="102" height="20" rx="7"/>
+    <text class="code" x="456" y="261">BidiRun[]</text>
+  </g>
+
+  <g class="stage stage-3">
+    <rect class="card" x="604" y="127" width="180" height="148" rx="18"/>
+    <circle class="port delay-3" cx="766" cy="145" r="5" fill="#2479c4"/>
+    <text class="eyebrow" x="626" y="158">SELECT + SHAPE</text>
+    <text class="label" x="626" y="188">Typeface</text>
+    <text class="copy" x="626" y="214">fallback · features</text>
+    <text class="copy" x="626" y="234">clusters · advances</text>
+    <rect class="pill" x="626" y="247" width="128" height="20" rx="7"/>
+    <text class="code" x="636" y="261">ShapedGlyph[]</text>
+  </g>
+
+  <g class="stage stage-4">
+    <rect class="card" x="814" y="127" width="170" height="148" rx="18"/>
+    <circle class="port" cx="966" cy="145" r="5" fill="#1490ae"/>
+    <text class="eyebrow" x="836" y="158">BREAK + PLACE</text>
+    <text class="label" x="836" y="188">Line layout</text>
+    <text class="copy" x="836" y="214">wrap · position</text>
+    <text class="copy" x="836" y="234">carets · visual runs</text>
+    <rect class="pill" x="836" y="247" width="126" height="20" rx="7"/>
+    <text class="code" x="846" y="261">LayoutOptions</text>
+  </g>
+
+  <g class="stage stage-5">
+    <rect x="1014" y="127" width="142" height="148" rx="18" fill="url(#output)"/>
+    <text x="1036" y="158" fill="#d9fff6" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" font-weight="600" letter-spacing="1.3">OUTPUT</text>
+    <text x="1036" y="188" fill="#fff" font-family="ui-sans-serif, system-ui, sans-serif" font-size="16" font-weight="700">Paragraph</text>
+    <text x="1036" y="214" fill="#e5fbff" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" font-weight="500">VisualRun[]</text>
+    <text x="1036" y="234" fill="#e5fbff" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" font-weight="500">PositionedGlyph[]</text>
+    <text x="1036" y="254" fill="#e5fbff" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" font-weight="500">CaretStop[]</text>
+  </g>
+
+  <path class="support" d="M472 359V322H694V281"/>
+  <path class="support" d="M830 359V322H898V281"/>
+  <g filter="url(#shadow)">
+    <rect class="card-soft" x="244" y="359" width="456" height="94" rx="18"/>
+    <circle cx="271" cy="384" r="7" fill="#2479c4"/>
+    <text class="label" x="288" y="390">Typeface seam</text>
+    <text class="copy" x="270" y="416">MIRX · OpenType · flash-backed stores · custom raster sources</text>
+    <rect class="pill" x="270" y="426" width="192" height="20" rx="7"/>
+    <text class="code" x="280" y="440">Typeface / GlyphSource</text>
+
+    <rect class="card-soft" x="730" y="359" width="426" height="94" rx="18"/>
+    <circle cx="757" cy="384" r="7" fill="#00a38c"/>
+    <text class="label" x="774" y="390">Caller-owned memory</text>
+    <text class="copy" x="756" y="416">Capacity is visible before layout; storage is reused across calls.</text>
+    <rect class="pill" x="756" y="426" width="266" height="20" rx="7"/>
+    <text class="code" x="766" y="440">&amp;mut [runs] · &amp;mut [glyphs]</text>
+  </g>
+</svg>

@@ -1,9 +1,5 @@
-use crate::lookahead::Lookahead;
-use crate::word::{Word, WordInfo, WordType};
-
-type Flags = u16;
-const FLAG_BREAK_NONE: u16 = 0;
-const FLAG_BREAK_ALL: u16 = 1;
+use crate::properties::{display_width, is_open_punctuation};
+use crate::unicode::{graphemes, line_breaks, LineBreakKind};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LinePosition {
@@ -28,49 +24,51 @@ impl LineInfo {
     }
 }
 
-pub struct Line<'a> {
+pub(crate) struct Line<'a> {
     text: &'a str,
-
-    line_info_prev: Option<LineInfo>,
+    cursor: usize,
     max_width: usize,
     tab_width: usize,
-    long_break: bool,
-    letter_space: isize,
-    flags: Flags,
 }
 
-#[allow(dead_code)]
-impl Line<'_> {
-    pub fn new(text: &str, max_width: usize, tab_width: usize, letter_space: isize) -> Line<'_> {
-        Line {
+impl<'a> Line<'a> {
+    pub(crate) const fn new(text: &'a str, max_width: usize, tab_width: usize) -> Self {
+        Self {
             text,
-            line_info_prev: None,
+            cursor: 0,
             max_width,
             tab_width,
-            long_break: false,
-            letter_space,
-            flags: FLAG_BREAK_NONE,
         }
     }
 
-    pub fn with_max_width(mut self, max_width: usize) -> Self {
-        self.max_width = max_width;
-        self
+    fn next_start(&self) -> usize {
+        if self.cursor == 0 {
+            return 0;
+        }
+        let mut start = self.cursor;
+        while let Some(character) = self.text[start..].chars().next() {
+            if !matches!(character, ' ' | '\t') {
+                break;
+            }
+            start += character.len_utf8();
+        }
+        start
     }
 
-    pub fn with_tab_width(mut self, tab_width: usize) -> Self {
-        self.tab_width = tab_width;
-        self
-    }
-
-    pub fn with_long_break(mut self, long_break: bool) -> Self {
-        self.long_break = long_break;
-        self
-    }
-
-    pub fn with_flags(mut self, flags: Flags) -> Self {
-        self.flags = flags;
-        self
+    fn emit(&mut self, start: usize, candidate: Candidate) -> LineInfo {
+        let end = start + candidate.offset;
+        self.cursor = end;
+        LineInfo {
+            position: LinePosition {
+                start,
+                end,
+                brk: end,
+            },
+            line_height: 0,
+            line_spacing: 0,
+            real_width: candidate.width,
+            ideal_width: candidate.width,
+        }
     }
 }
 
@@ -78,260 +76,96 @@ impl Iterator for Line<'_> {
     type Item = LineInfo;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut start = self.line_info_prev.as_ref().map_or(0, |v| v.position.brk);
-        if self.line_info_prev.is_some() {
-            while let Some(character) = self.text[start..].chars().next() {
-                if !matches!(character, ' ' | '\t') {
-                    break;
-                }
-                start += character.len_utf8();
-            }
+        let start = self.next_start();
+        if start == self.text.len() {
+            self.cursor = start;
+            return None;
         }
-        let mut line_info = LineInfo {
-            position: LinePosition {
-                start,
-                end: 0,
-                brk: 0,
-            },
-            line_height: 0,
-            line_spacing: 0,
-            real_width: 0,
-            ideal_width: 0,
-        };
 
-        let mut word_iter = Lookahead::new(Word::new(
-            &self.text[line_info.position.start..],
-            self.max_width,
-            self.tab_width,
-            self.letter_space,
-        ));
+        let remaining = &self.text[start..];
+        let mut breaks = line_breaks(remaining).peekable();
+        let mut width = 0usize;
+        let mut last_fit = None;
+        let mut last_allowed = None;
+        let mut last_open = None;
+        let mut only_open = true;
+        let mut previous_open = false;
 
-        let break_all = (self.flags & FLAG_BREAK_ALL) == FLAG_BREAK_ALL;
+        for cluster in graphemes(remaining) {
+            let open = cluster.text.chars().next().is_some_and(is_open_punctuation);
+            if open && !previous_open && !only_open {
+                last_open = Some(Candidate {
+                    offset: cluster.range.start,
+                    width,
+                });
+            }
+            if !open {
+                only_open = false;
+            }
+            previous_open = open;
 
-        let mut end;
-        let mut brk;
-        let mut is_line_leading = true;
-        let mut unresolved_op_qu: Option<WordInfo> = None;
-        let mut unresolved_op_qu_word_count = 0;
-        let mut real_width = 0;
-        let mut ideal_width = 0;
-        let mut should_take_new_one = false;
-
-        loop {
-            let word = word_iter.peek()?.clone();
-            real_width += word.real_width;
-            ideal_width += word.ideal_width;
-
-            if break_all {
-                word_iter.next();
-
-                let word_next = word_iter.peek();
-                if let Some(word_next) = word_next {
-                    if word_next.position.brk != usize::MAX {
-                        end = word_next.position.end;
-                        brk = word_next.position.brk;
-                        real_width += word_next.real_width;
-                        ideal_width += word_next.ideal_width;
-                        break;
-                    }
+            let next_width = width.saturating_add(display_width(cluster.text, self.tab_width));
+            if next_width > self.max_width {
+                let whitespace = cluster.text.chars().all(char::is_whitespace);
+                let candidate = if whitespace {
+                    last_fit.or(last_allowed)
                 } else {
-                    end = word.position.end;
-                    brk = if word.position.brk != usize::MAX {
-                        word.position.brk
-                    } else {
-                        word.position.end
-                    };
-                    break;
+                    latest(last_allowed, last_open).or(last_fit)
+                };
+                if let Some(candidate) = candidate {
+                    return Some(self.emit(start, candidate));
                 }
-
-                continue;
             }
 
-            if is_line_leading
-                && self.long_break
-                && word.position.brk != usize::MAX
-                && !(word.word_type == WordType::Return || word.word_type == WordType::Newline)
+            width = next_width;
+            let candidate = Candidate {
+                offset: cluster.range.end,
+                width,
+            };
+            if width <= self.max_width || last_fit.is_none() {
+                last_fit = Some(candidate);
+            }
+
+            while breaks
+                .peek()
+                .is_some_and(|line_break| line_break.offset <= cluster.range.end)
             {
-                end = word.position.end;
-                brk = word.position.brk;
-                should_take_new_one = true;
-                break;
-            }
-
-            if word.word_type == WordType::Newline || word.word_type == WordType::Return {
-                end = word.position.end;
-                brk = word.position.end;
-                should_take_new_one = true;
-                break;
-            }
-
-            if word.word_type == WordType::OpenPunctuation || word.word_type == WordType::Quotation
-            {
-                let mut qu_processed = false;
-
-                if unresolved_op_qu.is_none()
-                    || (word.word_type == WordType::OpenPunctuation
-                        && unresolved_op_qu_word_count > 0)
-                {
-                    unresolved_op_qu = Some(word.clone());
-                    unresolved_op_qu_word_count = 0;
-                    qu_processed = true;
+                let line_break = breaks.next().unwrap();
+                if line_break.offset != cluster.range.end {
+                    continue;
                 }
-
-                word_iter.advance_cursor();
-                if let Some(word_next) = word_iter.peek() {
-                    if word_next.position.brk != usize::MAX
-                        && word_next.position.brk != word_next.position.end
-                    {
-                        if is_line_leading {
-                            continue;
-                        }
-
-                        if let Some(qu) = unresolved_op_qu
-                            .as_ref()
-                            .filter(|_| unresolved_op_qu_word_count == 0)
-                        {
-                            end = qu.position.start;
-                            brk = qu.position.start;
-                        } else {
-                            end = word.position.start;
-                            brk = word.position.start;
-
-                            real_width -= word.real_width;
-                            ideal_width -= word.ideal_width;
-                        }
-                        break;
+                match line_break.kind {
+                    LineBreakKind::Mandatory => return Some(self.emit(start, candidate)),
+                    LineBreakKind::Allowed if width <= self.max_width => {
+                        last_allowed = Some(candidate);
                     }
-                }
-
-                if !qu_processed
-                    && word.word_type == WordType::Quotation
-                    && unresolved_op_qu.is_some()
-                {
-                    unresolved_op_qu.take();
-                    unresolved_op_qu_word_count = 0;
+                    LineBreakKind::Allowed => {}
                 }
             }
 
-            word_iter.next();
-
-            let word_next = word_iter.peek();
-            if let Some(word_next) = word_next {
-                if word_next.position.brk != usize::MAX {
-                    end = word.position.end;
-                    brk = word.position.end;
-
-                    if word_next.position.brk == word_next.position.end {
-                        if word_next.word_type == WordType::Cjk
-                            || word_next.word_type == WordType::Latin
-                            || word_next.word_type == WordType::Number
-                        {
-                            continue;
-                        } else if word_next.word_type == WordType::Space
-                            || word_next.word_type == WordType::ClosePunctuation
-                            || word_next.word_type == WordType::Quotation
-                            || word_next.word_type == WordType::Hyphen
-                        {
-                            if word.word_type == WordType::Quotation {
-                                if unresolved_op_qu.is_some() {
-                                    end = word.position.start;
-                                    brk = word.position.start;
-                                } else {
-                                    end = word.position.end;
-                                    brk = word.position.end;
-                                }
-                            } else {
-                                end = word_next.position.end;
-                                brk = word_next.position.brk;
-                                real_width += word_next.real_width;
-                                ideal_width += word_next.ideal_width;
-                            }
-                            break;
-                        }
-                    }
-
-                    if word_next.word_type == WordType::Return
-                        || word_next.word_type == WordType::Newline
-                    {
-                        brk += 1;
-                    } else if !(word.word_type == WordType::ClosePunctuation
-                        || word.word_type == WordType::Quotation)
-                        && (word_next.word_type == WordType::ClosePunctuation
-                            || word_next.word_type == WordType::Quotation
-                            || word_next.word_type == WordType::Hyphen)
-                    {
-                        if is_line_leading {
-                            end = word_next.position.end;
-                            brk = word_next.position.brk;
-                        } else {
-                            if let Some(op_qu) = unresolved_op_qu
-                                .as_ref()
-                                .filter(|_| unresolved_op_qu_word_count == 0)
-                            {
-                                end = op_qu.position.start;
-                                brk = op_qu.position.start;
-                            } else {
-                                end = word.position.start;
-                                brk = word.position.start;
-                            }
-                        }
-
-                        if !is_line_leading {
-                            real_width -= word.real_width;
-                            ideal_width -= word.ideal_width;
-                        } else {
-                            real_width += word_next.real_width;
-                            ideal_width += word_next.ideal_width;
-                        }
-                    }
-                    break;
-                } else if (word.word_type == WordType::Cjk
-                    || word.word_type == WordType::Latin
-                    || word.word_type == WordType::Number)
-                    && unresolved_op_qu.is_some()
-                {
-                    unresolved_op_qu_word_count += 1;
-                }
-            } else {
-                end = word.position.end;
-                brk = word.position.end;
-                break;
-            }
-
-            if unresolved_op_qu.is_none() || unresolved_op_qu_word_count > 0 {
-                is_line_leading = false;
+            if width > self.max_width {
+                return Some(self.emit(start, candidate));
             }
         }
 
-        if should_take_new_one {
-            word_iter.next();
-        }
+        last_fit.map(|candidate| self.emit(start, candidate))
+    }
+}
 
-        if end == brk {
-            if let Some(word_next) = word_iter.peek() {
-                if word_next.word_type == WordType::Space {
-                    let space_len = word_next.position.end - word_next.position.start;
-                    brk += space_len;
-                }
-            }
-        }
+#[derive(Clone, Copy)]
+struct Candidate {
+    offset: usize,
+    width: usize,
+}
 
-        if end == 0 && brk > 0 {
-            end = brk;
-        } else if brk > end
-            && !self.text[line_info.position.start + end..line_info.position.start + brk]
-                .chars()
-                .all(char::is_whitespace)
-        {
-            brk = end;
-        }
-
-        line_info.position.end = line_info.position.start + end;
-        line_info.position.brk = line_info.position.start + brk;
-        line_info.real_width = real_width;
-        line_info.ideal_width = ideal_width;
-        self.line_info_prev = Some(line_info.clone());
-        Some(line_info)
+fn latest(left: Option<Candidate>, right: Option<Candidate>) -> Option<Candidate> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(if left.offset >= right.offset {
+            left
+        } else {
+            right
+        }),
+        (left, right) => left.or(right),
     }
 }
 
@@ -340,156 +174,39 @@ mod tests {
     use super::*;
     use std::prelude::v1::*;
 
-    macro_rules! do_a_test {
-        ($text:expr, $n: expr) => {
-            do_a_test($text, $n, FLAG_BREAK_NONE, 0);
-        };
-
-        ($text:expr, $n: expr, $flags:expr) => {
-            do_a_test($text, $n, $flags, 0);
-        };
-
-        ($text:expr, $n: expr, $flags:expr, $letter_space:expr) => {
-            do_a_test($text, $n, $flags, $letter_space);
-        };
-    }
-
-    fn do_a_test(text: &str, n: usize, flags: Flags, letter_space: isize) {
-        let flow = Line::new(text, n, 4, letter_space)
-            .with_long_break(true)
-            .with_flags(flags);
-
-        for line in flow {
-            let mut display_buffer = text
-                [line.position.start..line.position.brk.min(line.position.end)]
-                .trim_end_matches("\n")
-                .to_owned();
-            if letter_space > 0 {
-                let spacer = " ".repeat(letter_space as usize);
-                display_buffer = display_buffer
-                    .chars()
-                    .map(|c| c.to_string())
-                    .collect::<Vec<_>>()
-                    .join(&spacer);
-            }
-            let text_len = display_buffer.len();
-
-            // calc real width of the line: wide char is 2, others are 1
-            let full_width =
-                display_buffer
-                    .chars()
-                    .fold(0, |acc, ch| if ch.is_ascii() { acc + 1 } else { acc + 2 });
-
-            for _ in full_width..n {
-                display_buffer += " ";
-            }
-            println!(
-                "{}| [{:3?}) len: {:3?}",
-                display_buffer,
-                line.position.start..line.position.end,
-                text_len
-            );
-        }
-        println!();
+    fn slices(text: &str, width: usize) -> Vec<&str> {
+        Line::new(text, width, 4)
+            .map(|line| line.slices(text))
+            .collect()
     }
 
     #[test]
-    fn test_line_1() {
-        do_a_test!("The quick brown fox jumps over a lazy dog.", 15);
-    }
-
-    #[test]
-    fn test_line_2() {
-        do_a_test!("八百标兵奔北坡炮兵并排北边跑666中英文测试。The quick brown fox jumps over a lazy dog. abcdefghijklmnopq rstuvwxyz", 14);
-    }
-
-    #[test]
-    fn test_line_3() {
-        do_a_test!(
-            "为了提供更好的服务和服务。\n请您在使用前充分阅读《TextFlowwwwwwwwwwwwwwwwww 使用隐私 Policy》",
-            25
-        );
-    }
-
-    #[test]
-    fn test_line_4() {
-        do_a_test!("《Loooooooooooooooong Text》", 20);
-    }
-
-    #[test]
-    fn test_line_5() {
-        do_a_test!("This is a Text》〉>?!", 20);
-        do_a_test!("<〈《Teext a>>>", 12);
-        do_a_test!("<〈《Tee<ext><>>", 12);
-        do_a_test!("<〈《Tee<eext><>>", 12);
-        do_a_test!("<〈<<《你》>", 10);
-        do_a_test!("<〈<<《Loooooo｜ong>>", 14);
-        do_a_test!("this is aaaa \"text word\" test", 15);
-        do_a_test!("this is a \"text word\" test", 15);
-        do_a_test!("this is a <text> test", 15);
-        do_a_test!("this is a text-test", 15);
-        do_a_test!("实时操作系统 Nuttx》。", 20);
-    }
-
-    #[test]
-    fn test_line_6() {
-        for i in 1..=15 {
-            do_a_test!("an \"apple\" tree", i);
-        }
-    }
-
-    #[test]
-    fn test_line_7() {
-        do_a_test!("abc,    bcd, efg  bc", 5);
-        do_a_test!("abc,\n    bcd, efg  bc", 5);
-        do_a_test!("an    apple         \"is\" a fruit", 1);
-        do_a_test!("anyone can be able to", 13);
-    }
-
-    #[test]
-    fn test_line_8() {
-        do_a_test!("a book named 《<《「Wow》>」", 27);
-    }
-
-    #[test]
-    fn test_line_9() {
-        do_a_test!("b  \n\n     a", 2);
-    }
-
-    #[test]
-    fn test_line_10() {
-        do_a_test!("\"abc     aa", 2);
-    }
-
-    #[test]
-    fn test_line_11() {
-        do_a_test!("f abcdefghijklmnopq", 10, FLAG_BREAK_ALL);
-    }
-
-    #[test]
-    fn lines_advance_without_dropping_text() {
+    fn preserves_text_across_emergency_breaks() {
         let text = "an \"apple\" tree";
 
-        for width in 1..=text.len() {
-            let lines = Line::new(text, width, 4, 0).with_long_break(true);
+        for width in 0..=text.len() {
             let mut rendered = String::new();
             let mut previous_break = 0;
-
-            for line in lines {
+            for line in Line::new(text, width, 4) {
                 assert!(line.position.brk > previous_break);
                 rendered.push_str(line.slices(text));
                 previous_break = line.position.brk;
             }
-
             assert_eq!(
                 rendered
                     .chars()
-                    .filter(|ch| !ch.is_whitespace())
+                    .filter(|character| !character.is_whitespace())
                     .collect::<String>(),
                 text.chars()
-                    .filter(|ch| !ch.is_whitespace())
+                    .filter(|character| !character.is_whitespace())
                     .collect::<String>()
             );
         }
+    }
+
+    #[test]
+    fn respects_graphemes_and_mandatory_breaks() {
+        assert_eq!(slices("a\u{301}b", 1), ["a\u{301}", "b"]);
+        assert_eq!(slices("a\r\n\r\nb", 8), ["a", "", "b"]);
     }
 }

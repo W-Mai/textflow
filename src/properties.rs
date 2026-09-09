@@ -64,3 +64,18 @@ pub(crate) fn is_close_punctuation(character: char) -> bool {
             | '～'
     )
 }
+
+pub(crate) fn display_width(text: &str, tab_width: usize) -> usize {
+    if text == "\t" {
+        tab_width
+    } else if text
+        .chars()
+        .all(|character| matches!(character, '\r' | '\n'))
+    {
+        0
+    } else if text.chars().any(is_wide) {
+        2
+    } else {
+        1
+    }
+}

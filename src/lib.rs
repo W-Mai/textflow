@@ -21,9 +21,7 @@ use crate::workspace::{TextWorkspace, WorkspaceError};
 #[cfg(feature = "shaping")]
 mod buffer;
 mod line;
-mod lookahead;
 mod properties;
-mod word;
 
 #[cfg(feature = "bidi")]
 pub mod bidi;
@@ -31,6 +29,8 @@ pub mod bidi;
 pub mod layout;
 #[cfg(feature = "shaping")]
 pub mod shaping;
+#[cfg(not(feature = "unicode"))]
+mod unicode;
 #[cfg(feature = "unicode")]
 pub mod unicode;
 #[cfg(all(feature = "alloc", feature = "shaping"))]
@@ -57,7 +57,7 @@ impl<'a> TextFlow<'a> {
             max_width,
             line_height: 0,
             line_spacing: 0,
-            lines: Line::new("", 0, 0, 0),
+            lines: Line::new("", 0, 4),
             #[cfg(feature = "shaping")]
             base_direction: BaseDirection::Auto,
             #[cfg(feature = "shaping")]
@@ -66,7 +66,7 @@ impl<'a> TextFlow<'a> {
             origin: FlowPoint { x: 0, y: 0 },
         };
 
-        flow.lines = Line::new(flow.text, flow.max_width, 0, 0).with_long_break(true);
+        flow.lines = Line::new(flow.text, flow.max_width, 4);
 
         flow
     }

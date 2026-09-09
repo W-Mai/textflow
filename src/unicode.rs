@@ -4,6 +4,7 @@ use core::str::CharIndices;
 
 use crate::properties::{is_close_punctuation, is_open_punctuation, is_wide};
 
+#[cfg(feature = "unicode")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Script {
     Common,
@@ -21,6 +22,7 @@ pub enum Script {
     Unknown,
 }
 
+#[cfg(feature = "unicode")]
 impl Script {
     pub fn of(character: char) -> Self {
         script(character)
@@ -134,10 +136,7 @@ impl Iterator for LineBreaks<'_> {
             } else if is_space(character) {
                 (!next.is_some_and(is_space)).then_some(LineBreakKind::Allowed)
             } else if matches!(character, '-' | '/' | '\u{2010}' | '\u{2013}')
-                || next.is_some_and(|next| {
-                    is_wide(character) && !is_close_punctuation(next)
-                        || is_wide(next) && !is_open_punctuation(character)
-                })
+                || next.is_some_and(|next| allows_wide_break(character, next))
             {
                 Some(LineBreakKind::Allowed)
             } else {
@@ -166,12 +165,14 @@ impl Iterator for LineBreaks<'_> {
     }
 }
 
+#[cfg(feature = "unicode")]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ScriptRun {
     pub text: Range<usize>,
     pub script: Script,
 }
 
+#[cfg(feature = "unicode")]
 pub fn script_runs(text: &str) -> ScriptRuns<'_> {
     ScriptRuns {
         text,
@@ -180,12 +181,14 @@ pub fn script_runs(text: &str) -> ScriptRuns<'_> {
     }
 }
 
+#[cfg(feature = "unicode")]
 pub struct ScriptRuns<'a> {
     text: &'a str,
     graphemes: Graphemes<'a>,
     pending: Option<Grapheme<'a>>,
 }
 
+#[cfg(feature = "unicode")]
 impl Iterator for ScriptRuns<'_> {
     type Item = ScriptRun;
 
@@ -321,6 +324,7 @@ fn is_extend(value: u32) -> bool {
     )
 }
 
+#[cfg(feature = "unicode")]
 fn script(character: char) -> Script {
     let value = character as u32;
     match value {
@@ -349,6 +353,7 @@ fn script(character: char) -> Script {
     }
 }
 
+#[cfg(feature = "unicode")]
 fn strong_script(grapheme: &str) -> Option<Script> {
     grapheme
         .chars()
@@ -361,6 +366,12 @@ fn is_space(character: char) -> bool {
         character,
         ' ' | '\t' | '\u{00A0}' | '\u{2000}'..='\u{200A}' | '\u{3000}'
     )
+}
+
+fn allows_wide_break(previous: char, next: char) -> bool {
+    !is_open_punctuation(previous)
+        && !is_close_punctuation(next)
+        && (is_wide(previous) || is_wide(next))
 }
 
 #[cfg(test)]
@@ -394,6 +405,18 @@ mod tests {
         assert_eq!(cjk.last().unwrap().kind, LineBreakKind::Mandatory);
     }
 
+    #[test]
+    fn line_breaks_keep_bracket_edges_together() {
+        let text = "《文字》〉";
+        let offsets = line_breaks(text)
+            .filter(|line_break| line_break.kind == LineBreakKind::Allowed)
+            .map(|line_break| line_break.offset)
+            .collect::<Vec<_>>();
+
+        assert_eq!(offsets, ["《文".len()]);
+    }
+
+    #[cfg(feature = "unicode")]
     #[test]
     fn neutral_prefix_joins_the_first_strong_script() {
         let text = "(العربية) Latin";

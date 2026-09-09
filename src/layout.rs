@@ -201,7 +201,7 @@ impl<'a> LogicalRuns<'a> {
         text: &str,
         typefaces: &[&dyn Typeface],
         features: &[FontFeature],
-        broken: &BrokenLines<'_>,
+        broken: &BrokenLines<'_, '_>,
         options: LayoutOptions,
         buffers: LayoutBuffers<'output>,
     ) -> Result<ParagraphLayout<'output>, LayoutError> {
@@ -211,6 +211,7 @@ impl<'a> LogicalRuns<'a> {
                 typefaces,
                 features,
                 logical: self.runs,
+                shaped: broken.shaped,
             },
             broken,
         )
@@ -223,6 +224,14 @@ struct LayoutInput<'a, 'face> {
     typefaces: &'a [&'face dyn Typeface],
     features: &'a [FontFeature],
     logical: &'a [LogicalRun],
+    shaped: &'a ShapedText<'a>,
+}
+
+#[derive(Clone, Copy)]
+struct SyntheticRun {
+    typeface: u16,
+    font_id: FontId,
+    anchor: u32,
 }
 
 struct ParagraphBuilder<'a> {
@@ -247,38 +256,52 @@ impl<'output> ParagraphBuilder<'output> {
     fn layout(
         mut self,
         input: LayoutInput<'_, '_>,
-        broken: &BrokenLines<'_>,
+        broken: &BrokenLines<'_, '_>,
     ) -> Result<ParagraphLayout<'output>, LayoutError> {
-        self.preflight(input.logical, broken)?;
-        for (line_index, broken_line) in broken.lines.iter().enumerate() {
-            self.push_line(input, line_index, *broken_line)?;
+        let line_count = broken.lines.len().min(self.options.max_lines);
+        let ellipsized = self.options.overflow == Overflow::Ellipsis
+            && line_count > 0
+            && line_count < broken.lines.len();
+        self.preflight(input.logical, broken, line_count, ellipsized)?;
+        for (line_index, broken_line) in broken.lines[..line_count].iter().enumerate() {
+            if ellipsized && line_index + 1 == line_count {
+                self.push_ellipsized_line(input, line_index, *broken_line)?;
+            } else {
+                self.push_line(input, line_index, *broken_line, None)?;
+            }
         }
-        Ok(self.finish(broken.lines.len()))
+        Ok(self.finish(line_count))
     }
 
     fn preflight(
         &self,
         logical: &[LogicalRun],
-        broken: &BrokenLines<'_>,
+        broken: &BrokenLines<'_, '_>,
+        line_count: usize,
+        ellipsized: bool,
     ) -> Result<(), LayoutError> {
         if self.options.line_height < 0 {
             return Err(LayoutError::InvalidLineHeight);
         }
-        if self.buffers.lines.len() < broken.lines.len() {
+        if self.buffers.lines.len() < line_count {
             return Err(LayoutError::InsufficientLineCapacity {
-                required: broken.lines.len(),
+                required: line_count,
             });
         }
-        let required_runs = broken.lines.iter().try_fold(0usize, |count, line| {
-            let line_runs = logical
-                .iter()
-                .filter(|run| intersection(run.text, line.text).is_some())
-                .count();
-            count
-                .checked_add(line_runs)
-                .ok_or(LayoutError::CoordinateOverflow)
-        })?;
-        if required_runs > u32::MAX as usize || broken.lines.len() > u32::MAX as usize {
+        let required_runs = broken.lines[..line_count]
+            .iter()
+            .try_fold(0usize, |count, line| {
+                let line_runs = logical
+                    .iter()
+                    .filter(|run| intersection(run.text, line.text).is_some())
+                    .count();
+                count
+                    .checked_add(line_runs)
+                    .ok_or(LayoutError::CoordinateOverflow)
+            })?
+            .checked_add(usize::from(ellipsized))
+            .ok_or(LayoutError::CoordinateOverflow)?;
+        if required_runs > u32::MAX as usize || line_count > u32::MAX as usize {
             return Err(LayoutError::CoordinateOverflow);
         }
         if self.buffers.runs.len() < required_runs {
@@ -294,17 +317,22 @@ impl<'output> ParagraphBuilder<'output> {
         input: LayoutInput<'_, '_>,
         line_index: usize,
         broken: BrokenLine,
+        synthetic: Option<SyntheticRun>,
     ) -> Result<(), LayoutError> {
         let line_run_start = self.run_count;
         self.append_visual_runs(input.logical, input.typefaces, broken)?;
         reorder_visual_runs(&mut self.buffers.runs[line_run_start..self.run_count]);
+        if let Some(synthetic) = synthetic {
+            self.insert_synthetic_run(line_run_start, synthetic)?;
+        }
 
         let origin = self.line_origin(line_index)?;
         let line_glyph_start = self.glyph_count;
         let line_caret_start = self.caret_count;
         let mut pen = origin;
+        let line_run_end = self.run_count;
         for run_index in line_run_start..self.run_count {
-            pen = self.shape_run(input, run_index, broken, pen)?;
+            pen = self.shape_run(input, run_index, line_run_end, broken, pen)?;
         }
         let mut advance = pen
             .x
@@ -336,6 +364,121 @@ impl<'output> ParagraphBuilder<'output> {
             origin: aligned_origin,
             advance,
         };
+        Ok(())
+    }
+
+    fn push_ellipsized_line(
+        &mut self,
+        input: LayoutInput<'_, '_>,
+        line_index: usize,
+        line: BrokenLine,
+    ) -> Result<(), LayoutError> {
+        const ELLIPSIS: &str = "\u{2026}";
+
+        let typeface = select_typeface(ELLIPSIS, input.typefaces)?;
+        let face = input
+            .typefaces
+            .get(typeface as usize)
+            .ok_or(LayoutError::InvalidRun)?;
+        let direction = self.options.direction;
+        let request = ShapeRequest::new(ELLIPSIS, 0..ELLIPSIS.len(), direction, Script::Common)
+            .with_features(input.features)
+            .with_line_edges(LineEdges::BOTH);
+        let count = match face.shape_into(&request, self.buffers.scratch) {
+            Ok(count) => count,
+            Err(ShapeError::InsufficientCapacity { required }) => {
+                return Err(LayoutError::InsufficientScratchCapacity { minimum: required });
+            }
+            Err(error) => {
+                return Err(LayoutError::Shape {
+                    run: self.run_count,
+                    error,
+                });
+            }
+        };
+        if count > self.buffers.scratch.len()
+            || !valid_shaped_output(&request, &self.buffers.scratch[..count])
+        {
+            return Err(LayoutError::InvalidTypefaceOutput {
+                run: self.run_count,
+            });
+        }
+        let suffix_advance =
+            self.buffers.scratch[..count]
+                .iter()
+                .try_fold(0i32, |total, glyph| {
+                    total
+                        .checked_add(glyph.advance.x)
+                        .ok_or(LayoutError::CoordinateOverflow)
+                })?;
+        let width = self.options.width.unwrap_or(i32::MAX);
+        let content_limit = width
+            .checked_sub(suffix_advance)
+            .and_then(|value| value.checked_sub(self.options.spacing.letter))
+            .ok_or(LayoutError::CoordinateOverflow)?
+            .max(0);
+        let mut cutoff = fit_prefix(
+            input.shaped,
+            input.text,
+            line.text,
+            content_limit,
+            self.options.spacing,
+        )?;
+        loop {
+            let counts = (self.run_count, self.glyph_count, self.caret_count);
+            self.push_line(
+                input,
+                line_index,
+                BrokenLine {
+                    text: TextRange::new(line.text.start, cutoff),
+                    advance: 0,
+                    end: LineEnd::Paragraph,
+                },
+                Some(SyntheticRun {
+                    typeface,
+                    font_id: face.id(),
+                    anchor: cutoff,
+                }),
+            )?;
+            if self.buffers.lines[line_index].advance <= width || cutoff == line.text.start {
+                return Ok(());
+            }
+            (self.run_count, self.glyph_count, self.caret_count) = counts;
+            cutoff = previous_cluster_start(input.shaped, line.text, cutoff)?;
+        }
+    }
+
+    fn insert_synthetic_run(
+        &mut self,
+        line_run_start: usize,
+        synthetic: SyntheticRun,
+    ) -> Result<(), LayoutError> {
+        if self.run_count >= self.buffers.runs.len() {
+            return Err(LayoutError::InsufficientRunCapacity {
+                required: self.run_count.saturating_add(1),
+            });
+        }
+        let index = match self.options.direction {
+            Direction::LeftToRight => self.run_count,
+            Direction::RightToLeft => line_run_start,
+        };
+        self.buffers
+            .runs
+            .copy_within(index..self.run_count, index + 1);
+        let face = synthetic.typeface;
+        self.buffers.runs[index] = VisualRun {
+            text: TextRange::new(synthetic.anchor, synthetic.anchor),
+            glyphs: TextRange::new(0, 0),
+            font_id: synthetic.font_id,
+            typeface_index: face,
+            script: Script::Common,
+            bidi_level: match self.options.direction {
+                Direction::LeftToRight => 0,
+                Direction::RightToLeft => 1,
+            },
+            synthetic: true,
+        };
+        self.run_count += 1;
         Ok(())
     }
 
@@ -479,6 +622,7 @@ impl<'output> ParagraphBuilder<'output> {
                 typeface_index: logical.typeface,
                 script: logical.script,
                 bidi_level: logical.bidi_level,
+                synthetic: false,
             };
             self.run_count += 1;
         }
@@ -503,6 +647,7 @@ impl<'output> ParagraphBuilder<'output> {
         &mut self,
         input: LayoutInput<'_, '_>,
         run_index: usize,
+        line_run_end: usize,
         line: BrokenLine,
         origin: FlowPoint,
     ) -> Result<FlowPoint, LayoutError> {
@@ -510,14 +655,24 @@ impl<'output> ParagraphBuilder<'output> {
         let Some(typeface) = input.typefaces.get(visual.typeface_index as usize) else {
             return Err(LayoutError::InvalidRun);
         };
+        const ELLIPSIS: &str = "\u{2026}";
+        let (text, range, edges) = if visual.synthetic {
+            (ELLIPSIS, 0..ELLIPSIS.len(), LineEdges::BOTH)
+        } else {
+            (
+                input.text,
+                visual.text.start as usize..visual.text.end as usize,
+                line_edges(visual.text, line.text),
+            )
+        };
         let request = ShapeRequest::new(
-            input.text,
-            visual.text.start as usize..visual.text.end as usize,
+            text,
+            range,
             crate::bidi::Direction::from_level(visual.bidi_level),
             visual.script,
         )
         .with_features(input.features)
-        .with_line_edges(line_edges(visual.text, line.text));
+        .with_line_edges(edges);
         let count = match typeface.shape_into(&request, self.buffers.scratch) {
             Ok(count) => count,
             Err(ShapeError::InsufficientCapacity { required }) => {
@@ -536,11 +691,16 @@ impl<'output> ParagraphBuilder<'output> {
             return Err(LayoutError::InvalidTypefaceOutput { run: run_index });
         }
         apply_spacing(
-            input.text,
-            run_index + 1 < self.run_count,
+            text,
+            run_index + 1 < line_run_end,
             self.options.spacing,
             &mut self.buffers.scratch[..count],
         )?;
+        if visual.synthetic {
+            for glyph in &mut self.buffers.scratch[..count] {
+                glyph.cluster = visual.text;
+            }
+        }
         let glyph_end = self
             .glyph_count
             .checked_add(count)
@@ -564,13 +724,15 @@ impl<'output> ParagraphBuilder<'output> {
             )
             .map_err(|error| position_error(error, self.glyph_count))?;
         let end = positioned.end();
-        let carets = positioned
-            .carets_into(&mut self.buffers.carets[self.caret_count..])
-            .map_err(|error| caret_error(error, self.caret_count))?;
-        self.caret_count = self
-            .caret_count
-            .checked_add(carets.len())
-            .ok_or(LayoutError::CoordinateOverflow)?;
+        if !visual.synthetic {
+            let carets = positioned
+                .carets_into(&mut self.buffers.carets[self.caret_count..])
+                .map_err(|error| caret_error(error, self.caret_count))?;
+            self.caret_count = self
+                .caret_count
+                .checked_add(carets.len())
+                .ok_or(LayoutError::CoordinateOverflow)?;
+        }
         if self.caret_count > u32::MAX as usize {
             return Err(LayoutError::CoordinateOverflow);
         }
@@ -676,6 +838,69 @@ fn justification_gap(text: &str, cluster: TextRange, content_end: u32) -> bool {
         && text
             .get(cluster.start as usize..cluster.end as usize)
             .is_some_and(|value| !value.is_empty() && value.chars().all(char::is_whitespace))
+}
+
+fn fit_prefix(
+    shaped: &ShapedText<'_>,
+    text: &str,
+    line: TextRange,
+    max_width: i32,
+    spacing: TextSpacing,
+) -> Result<u32, LayoutError> {
+    let mut glyphs = LogicalGlyphs::new(shaped).peekable();
+    let mut width = 0i32;
+    let mut cutoff = line.start;
+    while let Some(first) = glyphs.next() {
+        let cluster = first.cluster;
+        let mut advance = first.advance.x;
+        while let Some(next) = glyphs.peek() {
+            if next.cluster != cluster {
+                break;
+            }
+            advance = advance
+                .checked_add(next.advance.x)
+                .ok_or(LayoutError::CoordinateOverflow)?;
+            glyphs.next();
+        }
+        if cluster.start < line.start || cluster.end > line.end {
+            continue;
+        }
+        advance = advance
+            .checked_add(cluster_spacing(text, cluster, spacing)?)
+            .ok_or(LayoutError::CoordinateOverflow)?;
+        let next = width
+            .checked_add(advance)
+            .ok_or(LayoutError::CoordinateOverflow)?;
+        if next > max_width {
+            break;
+        }
+        width = next;
+        let content = text
+            .get(cluster.start as usize..cluster.end as usize)
+            .ok_or(LayoutError::InvalidRun)?;
+        if !content.chars().all(char::is_whitespace) && shaped.is_safe_break(cluster.end) {
+            cutoff = cluster.end;
+        }
+    }
+    Ok(cutoff)
+}
+
+fn previous_cluster_start(
+    shaped: &ShapedText<'_>,
+    line: TextRange,
+    cutoff: u32,
+) -> Result<u32, LayoutError> {
+    let mut previous = line.start;
+    for glyph in LogicalGlyphs::new(shaped) {
+        let cluster = glyph.cluster;
+        if cluster.start < line.start || cluster.end > line.end || cluster.end >= cutoff {
+            continue;
+        }
+        if shaped.is_safe_break(cluster.end) {
+            previous = previous.max(cluster.end);
+        }
+    }
+    Ok(previous)
 }
 
 struct LogicalRunWriter<'a> {
@@ -819,14 +1044,14 @@ impl ShapedText<'_> {
         })
     }
 
-    pub fn break_into<'output>(
-        &self,
+    pub fn break_into<'shaped, 'output>(
+        &'shaped self,
         text: &str,
         max_width: i32,
         mode: WrapMode,
         spacing: TextSpacing,
         output: &'output mut [BrokenLine],
-    ) -> Result<BrokenLines<'output>, LayoutError> {
+    ) -> Result<BrokenLines<'shaped, 'output>, LayoutError> {
         if max_width < 0 {
             return Err(LayoutError::InvalidWidth);
         }
@@ -935,11 +1160,12 @@ enum LineEnd {
     Paragraph,
 }
 
-pub struct BrokenLines<'a> {
-    lines: &'a [BrokenLine],
+pub struct BrokenLines<'shaped, 'output> {
+    shaped: &'shaped ShapedText<'shaped>,
+    lines: &'output [BrokenLine],
 }
 
-impl BrokenLines<'_> {
+impl BrokenLines<'_, '_> {
     pub const fn lines(&self) -> &[BrokenLine] {
         self.lines
     }
@@ -1067,13 +1293,16 @@ impl<'shaped, 'glyphs, 'text, 'output> LineBreaker<'shaped, 'glyphs, 'text, 'out
         Ok(())
     }
 
-    fn finish(mut self) -> Result<BrokenLines<'output>, LayoutError> {
+    fn finish(mut self) -> Result<BrokenLines<'shaped, 'output>, LayoutError> {
         self.take_breaks_through(self.paragraph.end)?;
         if self.line_start < self.paragraph.end {
             self.emit(self.paragraph.end, self.width, LineEnd::Paragraph)?;
         }
         let lines = self.writer.finish()?;
-        Ok(BrokenLines { lines })
+        Ok(BrokenLines {
+            shaped: self.shaped,
+            lines,
+        })
     }
 }
 
@@ -1107,6 +1336,8 @@ pub struct LayoutOptions {
     pub width: Option<i32>,
     pub alignment: Alignment,
     pub direction: Direction,
+    pub max_lines: usize,
+    pub overflow: Overflow,
 }
 
 impl LayoutOptions {
@@ -1118,6 +1349,8 @@ impl LayoutOptions {
             width: None,
             alignment: Alignment::Start,
             direction: Direction::LeftToRight,
+            max_lines: usize::MAX,
+            overflow: Overflow::Clip,
         }
     }
 
@@ -1145,6 +1378,16 @@ impl LayoutOptions {
         self.direction = direction;
         self
     }
+
+    pub const fn with_max_lines(mut self, max_lines: usize) -> Self {
+        self.max_lines = max_lines;
+        self
+    }
+
+    pub const fn with_overflow(mut self, overflow: Overflow) -> Self {
+        self.overflow = overflow;
+        self
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -1154,6 +1397,13 @@ pub enum Alignment {
     Center,
     End,
     Justify,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Overflow {
+    #[default]
+    Clip,
+    Ellipsis,
 }
 
 pub struct LayoutBuffers<'a> {
@@ -1190,6 +1440,7 @@ pub struct VisualRun {
     typeface_index: u16,
     script: Script,
     bidi_level: u8,
+    synthetic: bool,
 }
 
 impl VisualRun {
@@ -1201,6 +1452,7 @@ impl VisualRun {
             typeface_index: 0,
             script: Script::Common,
             bidi_level: 0,
+            synthetic: false,
         }
     }
 
@@ -1218,6 +1470,10 @@ impl VisualRun {
 
     pub const fn bidi_level(self) -> u8 {
         self.bidi_level
+    }
+
+    pub const fn is_synthetic(self) -> bool {
+        self.synthetic
     }
 }
 
@@ -1759,12 +2015,24 @@ mod tests {
             BidiText::resolve(text, 0..text.len(), BaseDirection::Auto, &mut bidi_output).unwrap();
         let mut logical_output = [LogicalRun::empty(); 1];
         let logical = LogicalRuns::resolve(text, &bidi, &typefaces, &mut logical_output).unwrap();
+        let mut initial_glyphs = [ShapedGlyph::default(); 2];
+        let mut initial_runs = [GlyphRun::empty(); 1];
+        let shaped = logical
+            .shape_into(
+                text,
+                &typefaces,
+                &[],
+                &mut initial_glyphs,
+                &mut initial_runs,
+            )
+            .unwrap();
         let broken_storage = [BrokenLine {
             text: TextRange::new(0, 2),
             advance: 2,
             end: LineEnd::Paragraph,
         }];
         let broken = BrokenLines {
+            shaped: &shaped,
             lines: &broken_storage,
         };
         let mut scratch = [ShapedGlyph::default(); 2];
@@ -1838,12 +2106,24 @@ mod tests {
             BidiText::resolve(text, 0..text.len(), BaseDirection::Auto, &mut bidi_output).unwrap();
         let mut logical_output = [LogicalRun::empty(); 1];
         let logical = LogicalRuns::resolve(text, &bidi, &typefaces, &mut logical_output).unwrap();
+        let mut initial_glyphs = [ShapedGlyph::default(); 4];
+        let mut initial_runs = [GlyphRun::empty(); 1];
+        let shaped = logical
+            .shape_into(
+                text,
+                &typefaces,
+                &[],
+                &mut initial_glyphs,
+                &mut initial_runs,
+            )
+            .unwrap();
         let broken_storage = [BrokenLine {
             text: TextRange::new(0, 4),
             advance: 4,
             end: LineEnd::Wrap,
         }];
         let broken = BrokenLines {
+            shaped: &shaped,
             lines: &broken_storage,
         };
         let mut scratch = [ShapedGlyph::default(); 4];
@@ -1918,6 +2198,43 @@ mod tests {
     }
 
     #[test]
+    fn ellipsis_keeps_unsafe_cluster_boundaries_together() {
+        let text = "abc";
+        let mut glyphs = [ShapedGlyph::default(); 3];
+        for (index, glyph) in glyphs.iter_mut().enumerate() {
+            *glyph = ShapedGlyph::new(
+                GlyphId::new(index as u16),
+                TextRange::new(index as u32, index as u32 + 1),
+            );
+            glyph.advance.x = 1;
+        }
+        glyphs[2].set_unsafe_to_break(true);
+        let runs = [GlyphRun {
+            text: TextRange::new(0, 3),
+            glyphs: TextRange::new(0, 3),
+            font_id: FontId::new(1),
+            bidi_level: 0,
+        }];
+        let shaped = ShapedText {
+            text: TextRange::new(0, 3),
+            glyphs: &glyphs,
+            runs: &runs,
+        };
+
+        assert_eq!(
+            fit_prefix(
+                &shaped,
+                text,
+                TextRange::new(0, 3),
+                2,
+                TextSpacing::default(),
+            )
+            .unwrap(),
+            1
+        );
+    }
+
+    #[test]
     fn reshapes_line_edges_into_visual_outputs() {
         let text = "ab cd";
         let typefaces: [&dyn Typeface; 1] = [&EdgeTypeface];
@@ -1978,6 +2295,70 @@ mod tests {
         assert_eq!(layout.runs()[0].font_id(), FontId::new(9));
         assert_eq!(layout.glyphs().len(), 5);
         assert_eq!(layout.carets().len(), 7);
+    }
+
+    #[test]
+    fn ellipsis_rechecks_the_reshaped_line_width() {
+        let text = "ab cd";
+        let typefaces: [&dyn Typeface; 1] = [&EdgeTypeface];
+        let mut bidi_output = bidi_slots::<1>();
+        let bidi =
+            BidiText::resolve(text, 0..text.len(), BaseDirection::Auto, &mut bidi_output).unwrap();
+        let mut logical_output = [LogicalRun::empty(); 1];
+        let logical = LogicalRuns::resolve(text, &bidi, &typefaces, &mut logical_output).unwrap();
+        let mut initial_glyphs = [ShapedGlyph::default(); 5];
+        let mut initial_runs = [GlyphRun::empty(); 1];
+        let shaped = logical
+            .shape_into(
+                text,
+                &typefaces,
+                &[],
+                &mut initial_glyphs,
+                &mut initial_runs,
+            )
+            .unwrap();
+        let mut broken_output = [BrokenLine::empty(); 2];
+        let broken = shaped
+            .break_into(
+                text,
+                4,
+                WrapMode::Word,
+                TextSpacing::default(),
+                &mut broken_output,
+            )
+            .unwrap();
+        let mut scratch = [ShapedGlyph::default(); 5];
+        let mut glyphs = [PositionedGlyph::default(); 5];
+        let mut runs = [VisualRun::empty(); 3];
+        let mut lines = [LayoutLine::empty(); 1];
+        let mut carets = [CaretStop::default(); 6];
+        let layout = logical
+            .layout_into(
+                text,
+                &typefaces,
+                &[],
+                &broken,
+                LayoutOptions::new(10)
+                    .with_width(4)
+                    .with_max_lines(1)
+                    .with_overflow(Overflow::Ellipsis),
+                LayoutBuffers::new(
+                    &mut scratch,
+                    &mut glyphs,
+                    &mut runs,
+                    &mut lines,
+                    &mut carets,
+                ),
+            )
+            .unwrap();
+
+        assert_eq!(layout.lines()[0].text(), TextRange::new(0, 1));
+        assert_eq!(layout.lines()[0].advance(), 4);
+        assert_eq!(layout.glyphs()[0].glyph_id(), GlyphId::new('a' as u16));
+        assert_eq!(
+            layout.glyphs()[1].glyph_id(),
+            GlyphId::new('\u{2026}' as u16)
+        );
     }
 
     #[test]

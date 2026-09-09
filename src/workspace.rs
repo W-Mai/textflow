@@ -147,7 +147,9 @@ impl TextWorkspace {
                 .with_spacing(spacing)
                 .with_width(max_width)
                 .with_alignment(flow.alignment)
-                .with_direction(bidi.direction()),
+                .with_direction(bidi.direction())
+                .with_max_lines(flow.max_lines)
+                .with_overflow(flow.overflow),
             LayoutBuffers::new(
                 &mut self.scratch,
                 &mut self.glyphs,
@@ -258,5 +260,58 @@ mod tests {
             flow.layout(&typefaces, &mut workspace).err().unwrap(),
             WorkspaceError::DimensionOverflow
         );
+    }
+
+    #[test]
+    fn ellipsis_is_shaped_and_excluded_from_caret_navigation() {
+        let mut workspace = TextWorkspace::try_new(limits()).unwrap();
+        let source = Source;
+        let typeface = SimpleTypeface::new(&source);
+        let typefaces: [&dyn Typeface; 1] = [&typeface];
+        let flow = TextFlow::new("ab cd", 3)
+            .with_line_height(10)
+            .with_max_lines(1)
+            .with_overflow(crate::layout::Overflow::Ellipsis);
+        let layout = flow.layout(&typefaces, &mut workspace).unwrap();
+
+        assert_eq!(layout.lines().len(), 1);
+        assert_eq!(
+            layout.lines()[0].text(),
+            crate::shaping::TextRange::new(0, 2)
+        );
+        assert_eq!(layout.glyphs().len(), 3);
+        assert_eq!(
+            layout.glyphs()[2].glyph_id(),
+            GlyphId::new('\u{2026}' as u16)
+        );
+        assert!(layout.runs()[1].is_synthetic());
+        assert_eq!(
+            layout.runs()[1].text(),
+            crate::shaping::TextRange::new(2, 2)
+        );
+        assert_eq!(layout.carets().len(), 3);
+        assert_eq!(layout.carets().last().unwrap().text_offset, 2);
+    }
+
+    #[test]
+    fn rtl_ellipsis_occupies_the_visual_start() {
+        let mut workspace = TextWorkspace::try_new(limits()).unwrap();
+        let source = Source;
+        let typeface = SimpleTypeface::new(&source);
+        let typefaces: [&dyn Typeface; 1] = [&typeface];
+        let flow = TextFlow::new("ab cd", 3)
+            .with_line_height(10)
+            .with_direction(crate::bidi::BaseDirection::RightToLeft)
+            .with_max_lines(1)
+            .with_overflow(crate::layout::Overflow::Ellipsis);
+        let layout = flow.layout(&typefaces, &mut workspace).unwrap();
+
+        assert!(layout.runs()[0].is_synthetic());
+        assert_eq!(
+            layout.glyphs()[0].glyph_id(),
+            GlyphId::new('\u{2026}' as u16)
+        );
+        assert_eq!(layout.glyphs()[0].origin.x, 0);
+        assert_eq!(layout.glyphs()[1].origin.x, 1);
     }
 }

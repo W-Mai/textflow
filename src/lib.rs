@@ -27,7 +27,7 @@ extern crate std;
 use crate::line::Lines;
 
 #[cfg(feature = "shaping")]
-pub use crate::layout::{Alignment, WrapMode};
+pub use crate::layout::{Alignment, Overflow, WrapMode};
 pub use crate::line::Line;
 
 #[cfg(feature = "shaping")]
@@ -77,6 +77,10 @@ pub struct TextFlow<'a> {
     word_spacing: i32,
     #[cfg(feature = "shaping")]
     alignment: Alignment,
+    #[cfg(feature = "shaping")]
+    max_lines: usize,
+    #[cfg(feature = "shaping")]
+    overflow: Overflow,
 }
 
 impl<'a> TextFlow<'a> {
@@ -101,6 +105,10 @@ impl<'a> TextFlow<'a> {
             word_spacing: 0,
             #[cfg(feature = "shaping")]
             alignment: Alignment::Start,
+            #[cfg(feature = "shaping")]
+            max_lines: usize::MAX,
+            #[cfg(feature = "shaping")]
+            overflow: Overflow::Clip,
         };
 
         flow.lines = Lines::new(flow.text, flow.max_width, 4);
@@ -157,6 +165,18 @@ impl<'a> TextFlow<'a> {
     #[cfg(feature = "shaping")]
     pub const fn with_alignment(mut self, alignment: Alignment) -> Self {
         self.alignment = alignment;
+        self
+    }
+
+    #[cfg(feature = "shaping")]
+    pub const fn with_max_lines(mut self, max_lines: usize) -> Self {
+        self.max_lines = max_lines;
+        self
+    }
+
+    #[cfg(feature = "shaping")]
+    pub const fn with_overflow(mut self, overflow: Overflow) -> Self {
+        self.overflow = overflow;
         self
     }
 

@@ -1,4 +1,4 @@
-use crate::bidi::BidiText;
+use crate::bidi::{BidiText, Direction};
 use crate::shaping::{
     CaretStop, FlowPoint, FontAccessError, FontFeature, FontId, LineEdges, PositionError,
     PositionedGlyph, ShapeError, ShapeRequest, ShapedGlyph, ShapedRun, TextRange, Typeface,
@@ -306,19 +306,157 @@ impl<'output> ParagraphBuilder<'output> {
         for run_index in line_run_start..self.run_count {
             pen = self.shape_run(input, run_index, broken, pen)?;
         }
-        let advance = pen
+        let mut advance = pen
             .x
             .checked_sub(origin.x)
             .ok_or(LayoutError::CoordinateOverflow)?;
+        let offset = self.alignment_offset(advance)?;
+        let aligned_origin = FlowPoint {
+            x: origin
+                .x
+                .checked_add(offset)
+                .ok_or(LayoutError::CoordinateOverflow)?,
+            y: origin.y,
+        };
+        self.translate_line(line_glyph_start, line_caret_start, offset)?;
+        if self.options.alignment == Alignment::Justify && broken.end == LineEnd::Wrap {
+            advance = self.justify_line(
+                input.text,
+                broken,
+                line_glyph_start,
+                line_caret_start,
+                advance,
+            )?;
+        }
         self.buffers.lines[line_index] = LayoutLine {
             text: broken.text,
             runs: TextRange::new(line_run_start as u32, self.run_count as u32),
             glyphs: TextRange::new(line_glyph_start as u32, self.glyph_count as u32),
             carets: TextRange::new(line_caret_start as u32, self.caret_count as u32),
-            origin,
+            origin: aligned_origin,
             advance,
         };
         Ok(())
+    }
+
+    fn alignment_offset(&self, advance: i32) -> Result<i32, LayoutError> {
+        let Some(width) = self.options.width else {
+            return Ok(0);
+        };
+        let remaining = width.saturating_sub(advance).max(0);
+        Ok(match (self.options.alignment, self.options.direction) {
+            (Alignment::Start, Direction::LeftToRight)
+            | (Alignment::End, Direction::RightToLeft)
+            | (Alignment::Justify, _) => 0,
+            (Alignment::Start, Direction::RightToLeft)
+            | (Alignment::End, Direction::LeftToRight) => remaining,
+            (Alignment::Center, _) => remaining / 2,
+        })
+    }
+
+    fn translate_line(
+        &mut self,
+        glyph_start: usize,
+        caret_start: usize,
+        offset: i32,
+    ) -> Result<(), LayoutError> {
+        if offset == 0 {
+            return Ok(());
+        }
+        for glyph in &mut self.buffers.glyphs[glyph_start..self.glyph_count] {
+            glyph.origin.x = glyph
+                .origin
+                .x
+                .checked_add(offset)
+                .ok_or(LayoutError::CoordinateOverflow)?;
+        }
+        for caret in &mut self.buffers.carets[caret_start..self.caret_count] {
+            caret.position.x = caret
+                .position
+                .x
+                .checked_add(offset)
+                .ok_or(LayoutError::CoordinateOverflow)?;
+        }
+        Ok(())
+    }
+
+    fn justify_line(
+        &mut self,
+        text: &str,
+        line: BrokenLine,
+        glyph_start: usize,
+        caret_start: usize,
+        advance: i32,
+    ) -> Result<i32, LayoutError> {
+        let Some(width) = self.options.width else {
+            return Ok(advance);
+        };
+        let remaining = width.saturating_sub(advance);
+        if remaining <= 0 {
+            return Ok(advance);
+        }
+        let trimmed_end = trailing_content_end(text, line.text)?;
+        let glyphs = &self.buffers.glyphs[glyph_start..self.glyph_count];
+        let gaps = glyphs
+            .iter()
+            .enumerate()
+            .filter(|(index, glyph)| {
+                glyphs
+                    .get(index + 1)
+                    .is_none_or(|next| next.cluster != glyph.cluster)
+                    && justification_gap(text, glyph.cluster, trimmed_end)
+            })
+            .count();
+        if gaps == 0 {
+            return Ok(advance);
+        }
+        let gaps = i32::try_from(gaps).map_err(|_| LayoutError::CoordinateOverflow)?;
+        let each = remaining / gaps;
+        let mut remainder = remaining % gaps;
+        let mut shift = 0i32;
+        let (glyphs, carets) = (&mut self.buffers.glyphs, &mut self.buffers.carets);
+        let glyphs = &mut glyphs[glyph_start..self.glyph_count];
+        let carets = &mut carets[caret_start..self.caret_count];
+        for index in 0..glyphs.len() {
+            glyphs[index].origin.x = glyphs[index]
+                .origin
+                .x
+                .checked_add(shift)
+                .ok_or(LayoutError::CoordinateOverflow)?;
+            let cluster_end = glyphs
+                .get(index + 1)
+                .is_none_or(|next| next.cluster != glyphs[index].cluster);
+            if cluster_end && justification_gap(text, glyphs[index].cluster, trimmed_end) {
+                let extra = each + i32::from(remainder > 0);
+                remainder = remainder.saturating_sub(1);
+                let boundary = glyphs[index]
+                    .origin
+                    .x
+                    .checked_add(glyphs[index].advance.x)
+                    .ok_or(LayoutError::CoordinateOverflow)?;
+                glyphs[index].advance.x = glyphs[index]
+                    .advance
+                    .x
+                    .checked_add(extra)
+                    .ok_or(LayoutError::CoordinateOverflow)?;
+                shift = shift
+                    .checked_add(extra)
+                    .ok_or(LayoutError::CoordinateOverflow)?;
+                for caret in carets
+                    .iter_mut()
+                    .filter(|caret| caret.position.x >= boundary)
+                {
+                    caret.position.x = caret
+                        .position
+                        .x
+                        .checked_add(extra)
+                        .ok_or(LayoutError::CoordinateOverflow)?;
+                }
+            }
+        }
+        advance
+            .checked_add(shift)
+            .ok_or(LayoutError::CoordinateOverflow)
     }
 
     fn append_visual_runs(
@@ -522,6 +660,22 @@ fn cluster_spacing(
         .letter
         .checked_add(word)
         .ok_or(LayoutError::CoordinateOverflow)
+}
+
+fn trailing_content_end(text: &str, line: TextRange) -> Result<u32, LayoutError> {
+    let content = text
+        .get(line.start as usize..line.end as usize)
+        .ok_or(LayoutError::InvalidRun)?;
+    let trimmed = content.trim_end_matches(char::is_whitespace);
+    let end = line.start as usize + trimmed.len();
+    u32::try_from(end).map_err(|_| LayoutError::CoordinateOverflow)
+}
+
+fn justification_gap(text: &str, cluster: TextRange, content_end: u32) -> bool {
+    cluster.end <= content_end
+        && text
+            .get(cluster.start as usize..cluster.end as usize)
+            .is_some_and(|value| !value.is_empty() && value.chars().all(char::is_whitespace))
 }
 
 struct LogicalRunWriter<'a> {
@@ -752,6 +906,7 @@ impl<'a> Iterator for LogicalGlyphs<'a> {
 pub struct BrokenLine {
     text: TextRange,
     advance: i32,
+    end: LineEnd,
 }
 
 impl BrokenLine {
@@ -759,6 +914,7 @@ impl BrokenLine {
         Self {
             text: TextRange::new(0, 0),
             advance: 0,
+            end: LineEnd::Paragraph,
         }
     }
 
@@ -769,6 +925,14 @@ impl BrokenLine {
     pub const fn advance(self) -> i32 {
         self.advance
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum LineEnd {
+    Wrap,
+    Mandatory,
+    #[default]
+    Paragraph,
 }
 
 pub struct BrokenLines<'a> {
@@ -827,23 +991,23 @@ impl<'shaped, 'glyphs, 'text, 'output> LineBreaker<'shaped, 'glyphs, 'text, 'out
                 WrapMode::NoWrap => {}
                 WrapMode::Word => {
                     if let Some((offset, width)) = self.last_allowed.take() {
-                        self.emit(offset, width)?;
+                        self.emit(offset, width, LineEnd::Wrap)?;
                     } else if width_before > 0
                         && cluster.start > self.line_start
                         && self.shaped.is_safe_break(cluster.start)
                     {
-                        self.emit(cluster.start, width_before)?;
+                        self.emit(cluster.start, width_before, LineEnd::Wrap)?;
                     } else if self.line_start == cluster.start
                         && self.shaped.is_safe_break(cluster.end)
                     {
-                        self.emit(cluster.end, self.width)?;
+                        self.emit(cluster.end, self.width, LineEnd::Wrap)?;
                     }
                 }
                 WrapMode::Grapheme if width_before > 0 && cluster.start > self.line_start => {
-                    self.emit(cluster.start, width_before)?;
+                    self.emit(cluster.start, width_before, LineEnd::Wrap)?;
                 }
                 WrapMode::Grapheme if self.line_start == cluster.start => {
-                    self.emit(cluster.end, self.width)?;
+                    self.emit(cluster.end, self.width, LineEnd::Wrap)?;
                 }
                 WrapMode::Grapheme => {}
             }
@@ -863,11 +1027,18 @@ impl<'shaped, 'glyphs, 'text, 'output> LineBreaker<'shaped, 'glyphs, 'text, 'out
                 continue;
             }
             match next.kind {
-                LineBreakKind::Mandatory => self.emit(global, self.width)?,
+                LineBreakKind::Mandatory => {
+                    let end = if global == self.paragraph.end {
+                        LineEnd::Paragraph
+                    } else {
+                        LineEnd::Mandatory
+                    };
+                    self.emit(global, self.width, end)?;
+                }
                 LineBreakKind::Allowed
                     if self.mode == WrapMode::Word && self.width > self.max_width =>
                 {
-                    self.emit(global, self.width)?;
+                    self.emit(global, self.width, LineEnd::Wrap)?;
                 }
                 LineBreakKind::Allowed if self.mode == WrapMode::Word => {
                     self.last_allowed = Some((global, self.width));
@@ -878,13 +1049,14 @@ impl<'shaped, 'glyphs, 'text, 'output> LineBreaker<'shaped, 'glyphs, 'text, 'out
         Ok(())
     }
 
-    fn emit(&mut self, end: u32, advance: i32) -> Result<(), LayoutError> {
+    fn emit(&mut self, end: u32, advance: i32, line_end: LineEnd) -> Result<(), LayoutError> {
         if end <= self.line_start {
             return Ok(());
         }
         self.writer.push(BrokenLine {
             text: TextRange::new(self.line_start, end),
             advance,
+            end: line_end,
         });
         self.line_start = end;
         self.width = self
@@ -898,7 +1070,7 @@ impl<'shaped, 'glyphs, 'text, 'output> LineBreaker<'shaped, 'glyphs, 'text, 'out
     fn finish(mut self) -> Result<BrokenLines<'output>, LayoutError> {
         self.take_breaks_through(self.paragraph.end)?;
         if self.line_start < self.paragraph.end {
-            self.emit(self.paragraph.end, self.width)?;
+            self.emit(self.paragraph.end, self.width, LineEnd::Paragraph)?;
         }
         let lines = self.writer.finish()?;
         Ok(BrokenLines { lines })
@@ -927,11 +1099,14 @@ impl<'a> LineWriter<'a> {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LayoutOptions {
     pub origin: FlowPoint,
     pub line_height: i32,
     pub spacing: TextSpacing,
+    pub width: Option<i32>,
+    pub alignment: Alignment,
+    pub direction: Direction,
 }
 
 impl LayoutOptions {
@@ -940,6 +1115,9 @@ impl LayoutOptions {
             origin: FlowPoint { x: 0, y: 0 },
             line_height,
             spacing: TextSpacing { letter: 0, word: 0 },
+            width: None,
+            alignment: Alignment::Start,
+            direction: Direction::LeftToRight,
         }
     }
 
@@ -952,6 +1130,30 @@ impl LayoutOptions {
         self.spacing = spacing;
         self
     }
+
+    pub const fn with_width(mut self, width: i32) -> Self {
+        self.width = Some(width);
+        self
+    }
+
+    pub const fn with_alignment(mut self, alignment: Alignment) -> Self {
+        self.alignment = alignment;
+        self
+    }
+
+    pub const fn with_direction(mut self, direction: Direction) -> Self {
+        self.direction = direction;
+        self
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Alignment {
+    #[default]
+    Start,
+    Center,
+    End,
+    Justify,
 }
 
 pub struct LayoutBuffers<'a> {
@@ -1479,6 +1681,7 @@ mod tests {
             &[BrokenLine {
                 text: TextRange::new(0, 5),
                 advance: 5,
+                end: LineEnd::Paragraph,
             }]
         );
     }
@@ -1541,6 +1744,138 @@ mod tests {
         assert_eq!(layout.glyphs()[2].origin.x, 4);
         assert_eq!(layout.glyphs()[3].origin.x, 8);
         assert_eq!(layout.carets().last().unwrap().position.x, 9);
+    }
+
+    #[test]
+    fn alignment_is_applied_to_glyphs_lines_and_carets() {
+        let text = "ab";
+        let primary = SimpleTypeface::new(&Source {
+            key: 1,
+            ascii: true,
+        });
+        let typefaces: [&dyn Typeface; 1] = [&primary];
+        let mut bidi_output = bidi_slots::<1>();
+        let bidi =
+            BidiText::resolve(text, 0..text.len(), BaseDirection::Auto, &mut bidi_output).unwrap();
+        let mut logical_output = [LogicalRun::empty(); 1];
+        let logical = LogicalRuns::resolve(text, &bidi, &typefaces, &mut logical_output).unwrap();
+        let broken_storage = [BrokenLine {
+            text: TextRange::new(0, 2),
+            advance: 2,
+            end: LineEnd::Paragraph,
+        }];
+        let broken = BrokenLines {
+            lines: &broken_storage,
+        };
+        let mut scratch = [ShapedGlyph::default(); 2];
+        let mut glyphs = [PositionedGlyph::default(); 2];
+        let mut runs = [VisualRun::empty(); 1];
+        let mut lines = [LayoutLine::empty(); 1];
+        let mut carets = [CaretStop::default(); 3];
+        let layout = logical
+            .layout_into(
+                text,
+                &typefaces,
+                &[],
+                &broken,
+                LayoutOptions::new(10)
+                    .with_width(10)
+                    .with_alignment(Alignment::Center),
+                LayoutBuffers::new(
+                    &mut scratch,
+                    &mut glyphs,
+                    &mut runs,
+                    &mut lines,
+                    &mut carets,
+                ),
+            )
+            .unwrap();
+
+        assert_eq!(layout.lines()[0].origin().x, 4);
+        assert_eq!(layout.glyphs()[0].origin.x, 4);
+        assert_eq!(layout.glyphs()[1].origin.x, 5);
+        assert_eq!(layout.carets()[0].position.x, 4);
+        assert_eq!(layout.carets().last().unwrap().position.x, 6);
+
+        let mut scratch = [ShapedGlyph::default(); 2];
+        let mut glyphs = [PositionedGlyph::default(); 2];
+        let mut runs = [VisualRun::empty(); 1];
+        let mut lines = [LayoutLine::empty(); 1];
+        let mut carets = [CaretStop::default(); 3];
+        let rtl_start = logical
+            .layout_into(
+                text,
+                &typefaces,
+                &[],
+                &broken,
+                LayoutOptions::new(10)
+                    .with_width(10)
+                    .with_alignment(Alignment::Start)
+                    .with_direction(Direction::RightToLeft),
+                LayoutBuffers::new(
+                    &mut scratch,
+                    &mut glyphs,
+                    &mut runs,
+                    &mut lines,
+                    &mut carets,
+                ),
+            )
+            .unwrap();
+        assert_eq!(rtl_start.lines()[0].origin().x, 8);
+        assert_eq!(rtl_start.glyphs()[0].origin.x, 8);
+    }
+
+    #[test]
+    fn justification_expands_internal_spaces_on_wrapped_lines() {
+        let text = "a b ";
+        let primary = SimpleTypeface::new(&Source {
+            key: 1,
+            ascii: true,
+        });
+        let typefaces: [&dyn Typeface; 1] = [&primary];
+        let mut bidi_output = bidi_slots::<1>();
+        let bidi =
+            BidiText::resolve(text, 0..text.len(), BaseDirection::Auto, &mut bidi_output).unwrap();
+        let mut logical_output = [LogicalRun::empty(); 1];
+        let logical = LogicalRuns::resolve(text, &bidi, &typefaces, &mut logical_output).unwrap();
+        let broken_storage = [BrokenLine {
+            text: TextRange::new(0, 4),
+            advance: 4,
+            end: LineEnd::Wrap,
+        }];
+        let broken = BrokenLines {
+            lines: &broken_storage,
+        };
+        let mut scratch = [ShapedGlyph::default(); 4];
+        let mut glyphs = [PositionedGlyph::default(); 4];
+        let mut runs = [VisualRun::empty(); 1];
+        let mut lines = [LayoutLine::empty(); 1];
+        let mut carets = [CaretStop::default(); 5];
+        let layout = logical
+            .layout_into(
+                text,
+                &typefaces,
+                &[],
+                &broken,
+                LayoutOptions::new(10)
+                    .with_width(8)
+                    .with_alignment(Alignment::Justify),
+                LayoutBuffers::new(
+                    &mut scratch,
+                    &mut glyphs,
+                    &mut runs,
+                    &mut lines,
+                    &mut carets,
+                ),
+            )
+            .unwrap();
+
+        assert_eq!(layout.lines()[0].advance(), 8);
+        assert_eq!(layout.glyphs()[1].advance.x, 5);
+        assert_eq!(layout.glyphs()[2].origin.x, 6);
+        assert_eq!(layout.glyphs()[3].origin.x, 7);
+        assert_eq!(layout.carets()[2].position.x, 6);
+        assert_eq!(layout.carets().last().unwrap().position.x, 8);
     }
 
     #[test]

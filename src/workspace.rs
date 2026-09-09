@@ -144,7 +144,10 @@ impl TextWorkspace {
             &broken,
             LayoutOptions::new(line_advance)
                 .with_origin(flow.origin)
-                .with_spacing(spacing),
+                .with_spacing(spacing)
+                .with_width(max_width)
+                .with_alignment(flow.alignment)
+                .with_direction(bidi.direction()),
             LayoutBuffers::new(
                 &mut self.scratch,
                 &mut self.glyphs,

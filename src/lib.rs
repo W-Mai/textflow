@@ -27,7 +27,7 @@ extern crate std;
 use crate::line::Lines;
 
 #[cfg(feature = "shaping")]
-pub use crate::layout::WrapMode;
+pub use crate::layout::{Alignment, WrapMode};
 pub use crate::line::Line;
 
 #[cfg(feature = "shaping")]
@@ -75,6 +75,8 @@ pub struct TextFlow<'a> {
     letter_spacing: i32,
     #[cfg(feature = "shaping")]
     word_spacing: i32,
+    #[cfg(feature = "shaping")]
+    alignment: Alignment,
 }
 
 impl<'a> TextFlow<'a> {
@@ -97,6 +99,8 @@ impl<'a> TextFlow<'a> {
             letter_spacing: 0,
             #[cfg(feature = "shaping")]
             word_spacing: 0,
+            #[cfg(feature = "shaping")]
+            alignment: Alignment::Start,
         };
 
         flow.lines = Lines::new(flow.text, flow.max_width, 4);
@@ -147,6 +151,12 @@ impl<'a> TextFlow<'a> {
     #[cfg(feature = "shaping")]
     pub const fn with_word_spacing(mut self, spacing: i32) -> Self {
         self.word_spacing = spacing;
+        self
+    }
+
+    #[cfg(feature = "shaping")]
+    pub const fn with_alignment(mut self, alignment: Alignment) -> Self {
+        self.alignment = alignment;
         self
     }
 

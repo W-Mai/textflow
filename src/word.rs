@@ -2,6 +2,8 @@ use core::iter::Peekable;
 use core::ops::Not;
 use core::str::CharIndices;
 
+use crate::properties::{is_close_punctuation, is_open_punctuation, is_wide};
+
 #[derive(PartialEq, Debug, Clone)]
 pub enum WordType {
     Latin,
@@ -47,26 +49,6 @@ fn is_latin(ch: char) -> bool {
     ch.is_ascii_alphabetic()
 }
 
-fn is_cjk(ch: char) -> bool {
-    ('\u{4e00}'..='\u{9fff}').contains(&ch)
-}
-
-fn is_open_punctuation(ch: char) -> bool {
-    [
-        '(', '[', '{', '<', '（', '「', '『', '【', '〔', '〈', '《', '⦗', '⟨', '‘', '“',
-    ]
-    .contains(&ch)
-}
-
-fn is_close_punctuation(ch: char) -> bool {
-    [
-        '.', ',', ';', ':', '!', '?', '。', '，', '、', '？', '！', '：', '；', // marks
-        ')', ']', '}', '>', '）', '」', '』', '】', '〕', '〉', '》', '⦘', '⟩', '’', '”', '|',
-        '｜', '·', '/', '—', '～',
-    ]
-    .contains(&ch)
-}
-
 fn is_quotation(ch: char) -> bool {
     [
         0x22,   // '"'
@@ -89,11 +71,11 @@ impl From<char> for WordType {
     fn from(ch: char) -> Self {
         match ch {
             ch if is_latin(ch) => WordType::Latin,
-            ch if is_cjk(ch) => WordType::Cjk,
             '-' => WordType::Hyphen,
             ch if ch.is_ascii_digit() => WordType::Number,
             ch if is_open_punctuation(ch) => WordType::OpenPunctuation,
             ch if is_close_punctuation(ch) => WordType::ClosePunctuation,
+            ch if is_wide(ch) => WordType::Cjk,
             '\n' => WordType::Newline,
             '\r' => WordType::Return,
             ' ' => WordType::Space,

@@ -2,6 +2,8 @@ use core::iter::Peekable;
 use core::ops::Range;
 use core::str::CharIndices;
 
+use crate::properties::{is_close_punctuation, is_open_punctuation, is_wide};
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Script {
     Common,
@@ -358,49 +360,6 @@ fn is_space(character: char) -> bool {
     matches!(
         character,
         ' ' | '\t' | '\u{00A0}' | '\u{2000}'..='\u{200A}' | '\u{3000}'
-    )
-}
-
-fn is_wide(character: char) -> bool {
-    matches!(
-        character as u32,
-        0x2E80..=0xA4CF | 0xAC00..=0xD7A3 | 0xF900..=0xFAFF | 0x1F000..=0x1FAFF
-            | 0x20000..=0x323AF
-    )
-}
-
-fn is_open_punctuation(character: char) -> bool {
-    matches!(
-        character,
-        '(' | '[' | '{' | '<' | '（' | '「' | '『' | '【' | '《' | '〈'
-    )
-}
-
-fn is_close_punctuation(character: char) -> bool {
-    matches!(
-        character,
-        '.' | ','
-            | ';'
-            | ':'
-            | '!'
-            | '?'
-            | ')'
-            | ']'
-            | '}'
-            | '>'
-            | '。'
-            | '，'
-            | '、'
-            | '？'
-            | '！'
-            | '：'
-            | '；'
-            | '）'
-            | '」'
-            | '』'
-            | '】'
-            | '》'
-            | '〉'
     )
 }
 

@@ -1,6 +1,8 @@
 use crate::unicode::Script;
 use core::ops::Range;
 
+use crate::buffer::SliceWriter;
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum BaseDirection {
     #[default]
@@ -74,11 +76,11 @@ impl<'a> BidiText<'a> {
         let direction = resolve_base_direction(&text[range.clone()], base_direction);
         let mut writer = RunWriter::new(output, direction);
         resolve_runs(text, range.clone(), direction, &mut writer);
-        let count = writer.finish()?;
+        let runs = writer.finish()?;
         Ok(Self {
             text: range,
             direction,
-            runs: &output[..count],
+            runs,
         })
     }
 
@@ -158,18 +160,16 @@ fn resolve_runs(text: &str, range: Range<usize>, base: Direction, writer: &mut R
 }
 
 struct RunWriter<'a> {
-    output: &'a mut [BidiRun],
+    output: SliceWriter<'a, BidiRun>,
     base: Direction,
-    count: usize,
     last_direction: Option<Direction>,
 }
 
 impl<'a> RunWriter<'a> {
     fn new(output: &'a mut [BidiRun], base: Direction) -> Self {
         Self {
-            output,
+            output: SliceWriter::new(output),
             base,
-            count: 0,
             last_direction: None,
         }
     }
@@ -178,31 +178,24 @@ impl<'a> RunWriter<'a> {
         if text.is_empty() {
             return;
         }
-        if self.last_direction == Some(direction) && self.count > 0 {
-            if let Some(last) = self.output.get_mut(self.count - 1) {
+        if self.last_direction == Some(direction) {
+            if let Some(last) = self.output.last_mut() {
                 last.text.end = text.end;
             }
             return;
         }
-        if let Some(slot) = self.output.get_mut(self.count) {
-            *slot = BidiRun {
-                text: text.clone(),
-                level: level(self.base, direction),
-                direction,
-            };
-        }
-        self.count += 1;
+        self.output.push(BidiRun {
+            text,
+            level: level(self.base, direction),
+            direction,
+        });
         self.last_direction = Some(direction);
     }
 
-    fn finish(self) -> Result<usize, BidiError> {
-        if self.count > self.output.len() {
-            Err(BidiError::InsufficientCapacity {
-                required: self.count,
-            })
-        } else {
-            Ok(self.count)
-        }
+    fn finish(self) -> Result<&'a [BidiRun], BidiError> {
+        self.output
+            .finish()
+            .map_err(|required| BidiError::InsufficientCapacity { required })
     }
 }
 

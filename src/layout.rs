@@ -6,6 +6,8 @@ use crate::shaping::{
 use crate::unicode::{graphemes, line_breaks, script_runs, LineBreakKind, LineBreaks, Script};
 use core::iter::Peekable;
 
+use crate::buffer::SliceWriter;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LogicalRun {
     text: TextRange,
@@ -115,10 +117,10 @@ impl<'a> LogicalRuns<'a> {
                 }
             }
         }
-        let count = writer.finish()?;
+        let runs = writer.finish()?;
         Ok(Self {
             text: TextRange::new(paragraph.start as u32, paragraph.end as u32),
-            runs: &output[..count],
+            runs,
         })
     }
 
@@ -363,16 +365,14 @@ impl<'a> LogicalRuns<'a> {
 }
 
 struct LogicalRunWriter<'a> {
-    output: &'a mut [LogicalRun],
-    count: usize,
+    output: SliceWriter<'a, LogicalRun>,
     last: Option<LogicalRun>,
 }
 
 impl<'a> LogicalRunWriter<'a> {
     fn new(output: &'a mut [LogicalRun]) -> Self {
         Self {
-            output,
-            count: 0,
+            output: SliceWriter::new(output),
             last: None,
         }
     }
@@ -385,27 +385,20 @@ impl<'a> LogicalRunWriter<'a> {
                 && previous.bidi_level == run.bidi_level
             {
                 previous.text.end = run.text.end;
-                if let Some(stored) = self.output.get_mut(self.count - 1) {
+                if let Some(stored) = self.output.last_mut() {
                     stored.text.end = run.text.end;
                 }
                 return;
             }
         }
-        if let Some(slot) = self.output.get_mut(self.count) {
-            *slot = run;
-        }
-        self.count += 1;
+        self.output.push(run);
         self.last = Some(run);
     }
 
-    fn finish(self) -> Result<usize, LayoutError> {
-        if self.count > self.output.len() {
-            Err(LayoutError::InsufficientRunCapacity {
-                required: self.count,
-            })
-        } else {
-            Ok(self.count)
-        }
+    fn finish(self) -> Result<&'a [LogicalRun], LayoutError> {
+        self.output
+            .finish()
+            .map_err(|required| LayoutError::InsufficientRunCapacity { required })
     }
 }
 
@@ -701,38 +694,30 @@ impl<'shaped, 'glyphs, 'text, 'output> LineBreaker<'shaped, 'glyphs, 'text, 'out
         if self.line_start < self.paragraph.end {
             self.emit(self.paragraph.end, self.width)?;
         }
-        let count = self.writer.finish()?;
-        Ok(BrokenLines {
-            lines: &self.writer.output[..count],
-        })
+        let lines = self.writer.finish()?;
+        Ok(BrokenLines { lines })
     }
 }
 
 struct LineWriter<'a> {
-    output: &'a mut [BrokenLine],
-    count: usize,
+    output: SliceWriter<'a, BrokenLine>,
 }
 
 impl<'a> LineWriter<'a> {
     fn new(output: &'a mut [BrokenLine]) -> Self {
-        Self { output, count: 0 }
+        Self {
+            output: SliceWriter::new(output),
+        }
     }
 
     fn push(&mut self, line: BrokenLine) {
-        if let Some(slot) = self.output.get_mut(self.count) {
-            *slot = line;
-        }
-        self.count += 1;
+        self.output.push(line);
     }
 
-    fn finish(&self) -> Result<usize, LayoutError> {
-        if self.count > self.output.len() {
-            Err(LayoutError::InsufficientLineCapacity {
-                required: self.count,
-            })
-        } else {
-            Ok(self.count)
-        }
+    fn finish(self) -> Result<&'a [BrokenLine], LayoutError> {
+        self.output
+            .finish()
+            .map_err(|required| LayoutError::InsufficientLineCapacity { required })
     }
 }
 

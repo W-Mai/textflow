@@ -219,6 +219,7 @@ fn strong_direction(character: char) -> Option<Direction> {
         Script::Latin
         | Script::Greek
         | Script::Cyrillic
+        | Script::Thai
         | Script::Devanagari
         | Script::Han
         | Script::Hiragana

@@ -14,6 +14,7 @@ pub enum Script {
     Cyrillic,
     Hebrew,
     Arabic,
+    Thai,
     Devanagari,
     Han,
     Hiragana,
@@ -37,6 +38,7 @@ impl Script {
             Self::Cyrillic => *b"Cyrl",
             Self::Hebrew => *b"Hebr",
             Self::Arabic => *b"Arab",
+            Self::Thai => *b"Thai",
             Self::Devanagari => *b"Deva",
             Self::Han => *b"Hani",
             Self::Hiragana => *b"Hira",
@@ -110,6 +112,13 @@ pub struct LineBreak {
     pub kind: LineBreakKind,
 }
 
+/// Supplies additional line breaks at validated grapheme boundaries.
+#[cfg(feature = "shaping")]
+pub trait LineBreakProvider {
+    /// Returns an additional break for `offset`, or `None` to preserve the built-in result.
+    fn break_at(&self, text: &str, offset: usize) -> Option<LineBreakKind>;
+}
+
 pub struct LineBreaks<'a> {
     text: &'a str,
     chars: Peekable<CharIndices<'a>>,
@@ -133,6 +142,8 @@ impl Iterator for LineBreaks<'_> {
             let next = self.chars.peek().map(|(_, next)| *next);
             let kind = if character == '\n' || character == '\r' && next != Some('\n') {
                 Some(LineBreakKind::Mandatory)
+            } else if character == '\u{200B}' {
+                Some(LineBreakKind::Allowed)
             } else if is_space(character) {
                 (!next.is_some_and(is_space)).then_some(LineBreakKind::Allowed)
             } else if matches!(character, '-' | '/' | '\u{2010}' | '\u{2013}')
@@ -308,6 +319,9 @@ fn is_extend(value: u32) -> bool {
             | 0x064B..=0x065F
             | 0x0670
             | 0x06D6..=0x06ED
+            | 0x0E31
+            | 0x0E34..=0x0E3A
+            | 0x0E47..=0x0E4E
             | 0x0900..=0x0902
             | 0x093A
             | 0x093C
@@ -336,6 +350,7 @@ fn script(character: char) -> Script {
         0x0600..=0x06FF | 0x0750..=0x077F | 0x08A0..=0x08FF | 0xFB50..=0xFDFF | 0xFE70..=0xFEFF => {
             Script::Arabic
         }
+        0x0E00..=0x0E7F => Script::Thai,
         0x0900..=0x097F | 0xA8E0..=0xA8FF => Script::Devanagari,
         0x3040..=0x309F => Script::Hiragana,
         0x30A0..=0x30FF | 0x31F0..=0x31FF => Script::Katakana,
@@ -391,6 +406,26 @@ mod tests {
     }
 
     #[test]
+    fn thai_marks_stay_with_their_base() {
+        let text = "กิ่";
+        let clusters = graphemes(text).collect::<Vec<_>>();
+
+        assert_eq!(clusters.len(), 1);
+        assert_eq!(clusters[0].text, text);
+    }
+
+    #[cfg(feature = "unicode")]
+    #[test]
+    fn thai_has_a_stable_script_identity() {
+        assert_eq!(Script::of('ก'), Script::Thai);
+        assert_eq!(Script::Thai.iso15924_tag(), *b"Thai");
+
+        let runs = script_runs("กิ่ ภาษา").collect::<Vec<_>>();
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].script, Script::Thai);
+    }
+
+    #[test]
     fn line_breaks_preserve_words_and_cjk_punctuation() {
         let latin = line_breaks("hello world").collect::<Vec<_>>();
         let cjk = line_breaks("你好，世界").collect::<Vec<_>>();
@@ -403,6 +438,17 @@ mod tests {
             .iter()
             .any(|line_break| line_break.offset == "你好".len()));
         assert_eq!(cjk.last().unwrap().kind, LineBreakKind::Mandatory);
+    }
+
+    #[test]
+    fn zero_width_space_is_an_explicit_break() {
+        let text = "ภาษา\u{200B}ไทย";
+        let breaks = line_breaks(text).collect::<Vec<_>>();
+
+        assert!(breaks.contains(&LineBreak {
+            offset: "ภาษา\u{200B}".len(),
+            kind: LineBreakKind::Allowed,
+        }));
     }
 
     #[test]

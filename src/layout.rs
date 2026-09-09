@@ -3,7 +3,9 @@ use crate::shaping::{
     CaretStop, FlowPoint, FontAccessError, FontFeature, FontId, LineEdges, PositionError,
     PositionedGlyph, ShapeError, ShapeRequest, ShapedGlyph, ShapedRun, TextRange, Typeface,
 };
-use crate::unicode::{graphemes, line_breaks, script_runs, LineBreakKind, LineBreaks, Script};
+use crate::unicode::{
+    graphemes, line_breaks, script_runs, LineBreakKind, LineBreakProvider, LineBreaks, Script,
+};
 use core::iter::Peekable;
 
 use crate::buffer::SliceWriter;
@@ -1008,9 +1010,14 @@ pub struct ShapedText<'a> {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum WrapMode {
+    /// Preserves the paragraph as one line except for mandatory breaks.
     NoWrap,
+    /// Wraps only at declared line-break opportunities.
     #[default]
     Word,
+    /// Wraps at declared opportunities, then falls back to grapheme boundaries.
+    WordOrGrapheme,
+    /// Wraps at every safe grapheme boundary.
     Grapheme,
 }
 
@@ -1067,6 +1074,31 @@ impl ShapedText<'_> {
         spacing: TextSpacing,
         output: &'output mut [BrokenLine],
     ) -> Result<BrokenLines<'shaped, 'output>, LayoutError> {
+        self.break_into_with_provider(text, max_width, mode, spacing, None, output)
+    }
+
+    /// Breaks shaped text with additional opportunities supplied by `provider`.
+    pub fn break_into_with<'shaped, 'output>(
+        &'shaped self,
+        text: &str,
+        max_width: i32,
+        mode: WrapMode,
+        spacing: TextSpacing,
+        provider: &dyn LineBreakProvider,
+        output: &'output mut [BrokenLine],
+    ) -> Result<BrokenLines<'shaped, 'output>, LayoutError> {
+        self.break_into_with_provider(text, max_width, mode, spacing, Some(provider), output)
+    }
+
+    pub(crate) fn break_into_with_provider<'shaped, 'output>(
+        &'shaped self,
+        text: &str,
+        max_width: i32,
+        mode: WrapMode,
+        spacing: TextSpacing,
+        provider: Option<&dyn LineBreakProvider>,
+        output: &'output mut [BrokenLine],
+    ) -> Result<BrokenLines<'shaped, 'output>, LayoutError> {
         if max_width < 0 {
             return Err(LayoutError::InvalidWidth);
         }
@@ -1080,7 +1112,7 @@ impl ShapedText<'_> {
             return Err(LayoutError::InvalidRun);
         }
         let breaks = line_breaks(&text[start..end]).peekable();
-        let mut breaker = LineBreaker::new(self, self.text, max_width, mode, breaks, output);
+        let mut breaker = LineBreaker::new(self, text, max_width, mode, breaks, provider, output);
         let mut glyphs = LogicalGlyphs::new(self).peekable();
         while let Some(first) = glyphs.next() {
             let cluster = first.cluster;
@@ -1188,10 +1220,12 @@ impl BrokenLines<'_, '_> {
 
 struct LineBreaker<'shaped, 'glyphs, 'text, 'output> {
     shaped: &'shaped ShapedText<'glyphs>,
+    text: &'text str,
     paragraph: TextRange,
     max_width: i32,
     mode: WrapMode,
     breaks: Peekable<LineBreaks<'text>>,
+    provider: Option<&'text dyn LineBreakProvider>,
     writer: LineWriter<'output>,
     line_start: u32,
     width: i32,
@@ -1201,20 +1235,23 @@ struct LineBreaker<'shaped, 'glyphs, 'text, 'output> {
 impl<'shaped, 'glyphs, 'text, 'output> LineBreaker<'shaped, 'glyphs, 'text, 'output> {
     fn new(
         shaped: &'shaped ShapedText<'glyphs>,
-        paragraph: TextRange,
+        text: &'text str,
         max_width: i32,
         mode: WrapMode,
         breaks: Peekable<LineBreaks<'text>>,
+        provider: Option<&'text dyn LineBreakProvider>,
         output: &'output mut [BrokenLine],
     ) -> Self {
         Self {
             shaped,
-            paragraph,
+            text,
+            paragraph: shaped.text,
             max_width,
             mode,
             breaks,
+            provider,
             writer: LineWriter::new(output),
-            line_start: paragraph.start,
+            line_start: shaped.text.start,
             width: 0,
             last_allowed: None,
         }
@@ -1231,6 +1268,11 @@ impl<'shaped, 'glyphs, 'text, 'output> LineBreaker<'shaped, 'glyphs, 'text, 'out
             match self.mode {
                 WrapMode::NoWrap => {}
                 WrapMode::Word => {
+                    if let Some((offset, width)) = self.last_allowed.take() {
+                        self.emit(offset, width, LineEnd::Wrap)?;
+                    }
+                }
+                WrapMode::WordOrGrapheme => {
                     if let Some((offset, width)) = self.last_allowed.take() {
                         self.emit(offset, width, LineEnd::Wrap)?;
                     } else if width_before > 0
@@ -1253,7 +1295,22 @@ impl<'shaped, 'glyphs, 'text, 'output> LineBreaker<'shaped, 'glyphs, 'text, 'out
                 WrapMode::Grapheme => {}
             }
         }
-        self.take_breaks_through(cluster.end)
+        self.take_breaks_through(cluster.end)?;
+        self.take_provider_break(cluster.end)
+    }
+
+    fn take_provider_break(&mut self, offset: u32) -> Result<(), LayoutError> {
+        let Some(provider) = self.provider else {
+            return Ok(());
+        };
+        if offset <= self.line_start || !self.shaped.is_safe_break(offset) {
+            return Ok(());
+        }
+        match provider.break_at(self.text, offset as usize) {
+            Some(LineBreakKind::Allowed) => self.take_allowed_break(offset),
+            Some(LineBreakKind::Mandatory) => self.emit(offset, self.width, LineEnd::Mandatory),
+            None => Ok(()),
+        }
     }
 
     fn take_breaks_through(&mut self, offset: u32) -> Result<(), LayoutError> {
@@ -1276,18 +1333,22 @@ impl<'shaped, 'glyphs, 'text, 'output> LineBreaker<'shaped, 'glyphs, 'text, 'out
                     };
                     self.emit(global, self.width, end)?;
                 }
-                LineBreakKind::Allowed
-                    if self.mode == WrapMode::Word && self.width > self.max_width =>
-                {
-                    self.emit(global, self.width, LineEnd::Wrap)?;
-                }
-                LineBreakKind::Allowed if self.mode == WrapMode::Word => {
-                    self.last_allowed = Some((global, self.width));
-                }
-                LineBreakKind::Allowed => {}
+                LineBreakKind::Allowed => self.take_allowed_break(global)?,
             }
         }
         Ok(())
+    }
+
+    fn take_allowed_break(&mut self, offset: u32) -> Result<(), LayoutError> {
+        if !matches!(self.mode, WrapMode::Word | WrapMode::WordOrGrapheme) {
+            return Ok(());
+        }
+        if self.width > self.max_width {
+            self.emit(offset, self.width, LineEnd::Wrap)
+        } else {
+            self.last_allowed = Some((offset, self.width));
+            Ok(())
+        }
     }
 
     fn emit(&mut self, end: u32, advance: i32, line_end: LineEnd) -> Result<(), LayoutError> {
@@ -2201,7 +2262,7 @@ mod tests {
             .break_into(
                 text,
                 3,
-                WrapMode::Word,
+                WrapMode::WordOrGrapheme,
                 TextSpacing::default(),
                 &mut line_output,
             )
@@ -2210,6 +2271,76 @@ mod tests {
         assert_eq!(lines.lines()[0].text(), TextRange::new(0, 4));
         assert_eq!(lines.lines()[0].advance(), 4);
         assert_eq!(lines.lines()[1].text(), TextRange::new(4, 5));
+    }
+
+    struct ThaiBreaks;
+
+    impl LineBreakProvider for ThaiBreaks {
+        fn break_at(&self, text: &str, offset: usize) -> Option<LineBreakKind> {
+            (text.get(..offset) == Some("ภาษา")).then_some(LineBreakKind::Allowed)
+        }
+    }
+
+    #[test]
+    fn continuous_thai_requires_an_explicit_break_policy() {
+        let text = "ภาษาไทย";
+        let mut glyphs = [ShapedGlyph::default(); 7];
+        for ((start, character), glyph) in text.char_indices().zip(&mut glyphs) {
+            *glyph = ShapedGlyph::new(
+                GlyphId::new(character as u16),
+                TextRange::new(start as u32, (start + character.len_utf8()) as u32),
+            );
+            glyph.advance.x = 1;
+        }
+        let runs = [GlyphRun {
+            text: TextRange::new(0, text.len() as u32),
+            glyphs: TextRange::new(0, glyphs.len() as u32),
+            font_id: FontId::new(1),
+            bidi_level: 0,
+        }];
+        let shaped = ShapedText {
+            text: TextRange::new(0, text.len() as u32),
+            glyphs: &glyphs,
+            runs: &runs,
+        };
+        let mut output = [BrokenLine::empty(); 3];
+
+        let word = shaped
+            .break_into(text, 4, WrapMode::Word, TextSpacing::default(), &mut output)
+            .unwrap();
+        assert_eq!(word.lines().len(), 1);
+        assert_eq!(word.lines()[0].text(), TextRange::new(0, text.len() as u32));
+
+        let fallback = shaped
+            .break_into(
+                text,
+                4,
+                WrapMode::WordOrGrapheme,
+                TextSpacing::default(),
+                &mut output,
+            )
+            .unwrap();
+        assert_eq!(fallback.lines().len(), 2);
+        assert_eq!(
+            fallback.lines()[0].text(),
+            TextRange::new(0, "ภาษา".len() as u32)
+        );
+
+        let provided = shaped
+            .break_into_with(
+                text,
+                4,
+                WrapMode::Word,
+                TextSpacing::default(),
+                &ThaiBreaks,
+                &mut output,
+            )
+            .unwrap();
+        assert_eq!(provided.lines().len(), 2);
+        assert_eq!(
+            provided.lines()[0].text(),
+            TextRange::new(0, "ภาษา".len() as u32)
+        );
     }
 
     #[test]

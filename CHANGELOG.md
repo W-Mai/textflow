@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Thai script and combining-mark classification.
+- Application-provided line-break opportunities through borrowed `LineBreakProvider` values.
+- Strict word wrapping with explicit `WordOrGrapheme` fallback.
+
 ## [0.1.0] - 2026-09-09
 
 ### Added

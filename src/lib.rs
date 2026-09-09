@@ -36,6 +36,8 @@ use crate::bidi::BaseDirection;
 use crate::shaping::Typeface;
 #[cfg(feature = "shaping")]
 use crate::shaping::{FlowPoint, FontFeature};
+#[cfg(feature = "shaping")]
+use crate::unicode::LineBreakProvider;
 #[cfg(all(feature = "alloc", feature = "shaping"))]
 use crate::workspace::{TextWorkspace, WorkspaceError};
 
@@ -72,6 +74,8 @@ pub struct TextFlow<'a> {
     #[cfg(feature = "shaping")]
     wrap: WrapMode,
     #[cfg(feature = "shaping")]
+    line_break_provider: Option<&'a dyn LineBreakProvider>,
+    #[cfg(feature = "shaping")]
     letter_spacing: i32,
     #[cfg(feature = "shaping")]
     word_spacing: i32,
@@ -99,6 +103,8 @@ impl<'a> TextFlow<'a> {
             origin: FlowPoint { x: 0, y: 0 },
             #[cfg(feature = "shaping")]
             wrap: WrapMode::Word,
+            #[cfg(feature = "shaping")]
+            line_break_provider: None,
             #[cfg(feature = "shaping")]
             letter_spacing: 0,
             #[cfg(feature = "shaping")]
@@ -147,6 +153,13 @@ impl<'a> TextFlow<'a> {
     #[cfg(feature = "shaping")]
     pub const fn with_wrap(mut self, wrap: WrapMode) -> Self {
         self.wrap = wrap;
+        self
+    }
+
+    #[cfg(feature = "shaping")]
+    /// Adds application-defined line breaks without transferring ownership.
+    pub const fn with_line_break_provider(mut self, provider: &'a dyn LineBreakProvider) -> Self {
+        self.line_break_provider = Some(provider);
         self
     }
 

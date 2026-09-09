@@ -135,8 +135,14 @@ impl TextWorkspace {
             letter: flow.letter_spacing,
             word: flow.word_spacing,
         };
-        let broken =
-            shaped.break_into(flow.text, max_width, flow.wrap, spacing, &mut self.broken)?;
+        let broken = shaped.break_into_with_provider(
+            flow.text,
+            max_width,
+            flow.wrap,
+            spacing,
+            flow.line_break_provider,
+            &mut self.broken,
+        )?;
         Ok(logical.layout_into(
             flow.text,
             typefaces,

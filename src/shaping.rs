@@ -152,6 +152,7 @@ pub enum ShapeError {
     UnsupportedFeature { tag: [u8; 4] },
     UnsupportedCluster { offset: usize },
     MissingGlyph { offset: usize },
+    ShapingUnavailable,
     Source(FontAccessError),
 }
 
@@ -463,6 +464,9 @@ pub trait Typeface {
     fn id(&self) -> FontId;
     fn metrics(&self) -> Result<FontMetrics, FontAccessError>;
     fn covers(&self, grapheme: &str) -> Result<bool, FontAccessError>;
+    fn supports_complex_shaping(&self) -> bool {
+        true
+    }
     fn shape_into(
         &self,
         request: &ShapeRequest<'_>,
@@ -516,6 +520,10 @@ where
             return Ok(false);
         }
         Ok(self.source.glyph_for(character)?.is_some())
+    }
+
+    fn supports_complex_shaping(&self) -> bool {
+        false
     }
 
     fn shape_into(
@@ -650,6 +658,7 @@ mod tests {
     #[test]
     fn shapes_into_caller_storage_with_kerning() {
         let face = SimpleTypeface::new(&MockFont);
+        assert!(!face.supports_complex_shaping());
         let text = "AV";
         let mut output = [ShapedGlyph::default(); 2];
         let count = face

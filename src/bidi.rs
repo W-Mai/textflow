@@ -15,6 +15,16 @@ pub enum Direction {
     RightToLeft,
 }
 
+impl Direction {
+    pub const fn from_level(level: u8) -> Self {
+        if level & 1 == 0 {
+            Self::LeftToRight
+        } else {
+            Self::RightToLeft
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BidiRun {
     pub text: Range<usize>,

@@ -1,5 +1,5 @@
 use crate::bidi::Direction;
-use crate::unicode::{graphemes, Script};
+use crate::unicode::{graphemes, line_breaks, LineBreak, LineBreaks, Script};
 use core::ops::Range;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -206,7 +206,7 @@ impl ShapedGlyph {
 pub struct ShapedRun<'a> {
     face: FaceKey,
     text: TextRange,
-    direction: Direction,
+    bidi_level: u8,
     glyphs: &'a [ShapedGlyph],
 }
 
@@ -214,13 +214,13 @@ impl<'a> ShapedRun<'a> {
     pub const fn new(
         face: FaceKey,
         text: TextRange,
-        direction: Direction,
+        bidi_level: u8,
         glyphs: &'a [ShapedGlyph],
     ) -> Self {
         Self {
             face,
             text,
-            direction,
+            bidi_level,
             glyphs,
         }
     }
@@ -234,7 +234,11 @@ impl<'a> ShapedRun<'a> {
     }
 
     pub const fn direction(&self) -> Direction {
-        self.direction
+        Direction::from_level(self.bidi_level)
+    }
+
+    pub const fn bidi_level(&self) -> u8 {
+        self.bidi_level
     }
 
     pub const fn glyphs(&self) -> &[ShapedGlyph] {
@@ -253,6 +257,201 @@ impl<'a> ShapedRun<'a> {
                 || glyph.cluster.start == offset && glyph.unsafe_to_break()
         })
     }
+
+    pub fn line_breaks<'text, 'run>(
+        &'run self,
+        text: &'text str,
+    ) -> Result<SafeLineBreaks<'text, 'run, 'a>, ShapeError> {
+        let start = self.text.start as usize;
+        let end = self.text.end as usize;
+        if start > end
+            || end > text.len()
+            || !text.is_char_boundary(start)
+            || !text.is_char_boundary(end)
+        {
+            return Err(ShapeError::InvalidTextRange);
+        }
+        Ok(SafeLineBreaks {
+            inner: line_breaks(&text[start..end]),
+            run: self,
+            base: self.text.start,
+        })
+    }
+
+    pub fn position_into<'output>(
+        &self,
+        origin: FlowPoint,
+        output: &'output mut [PositionedGlyph],
+    ) -> Result<PositionedRun<'output>, PositionError> {
+        if output.len() < self.glyphs.len() {
+            return Err(PositionError::InsufficientCapacity {
+                required: self.glyphs.len(),
+            });
+        }
+        let mut pen = origin;
+        for (slot, glyph) in output.iter_mut().zip(self.glyphs) {
+            *slot = PositionedGlyph {
+                glyph_id: glyph.glyph_id(),
+                cluster: glyph.cluster,
+                origin: pen,
+                advance: glyph.advance,
+                offset: glyph.offset,
+                bidi_level: self.bidi_level,
+            };
+            pen.x = pen
+                .x
+                .checked_add(glyph.advance.x)
+                .ok_or(PositionError::CoordinateOverflow)?;
+            pen.y = pen
+                .y
+                .checked_add(glyph.advance.y)
+                .ok_or(PositionError::CoordinateOverflow)?;
+        }
+        Ok(PositionedRun {
+            face: self.face,
+            text: self.text,
+            direction: self.direction(),
+            bidi_level: self.bidi_level,
+            end: pen,
+            glyphs: &output[..self.glyphs.len()],
+        })
+    }
+}
+
+pub struct SafeLineBreaks<'text, 'run, 'glyph> {
+    inner: LineBreaks<'text>,
+    run: &'run ShapedRun<'glyph>,
+    base: u32,
+}
+
+impl Iterator for SafeLineBreaks<'_, '_, '_> {
+    type Item = LineBreak;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let mut next = self.inner.next()?;
+            next.offset += self.base as usize;
+            if self.run.is_safe_break(next.offset as u32) {
+                return Some(next);
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PositionError {
+    InsufficientCapacity { required: usize },
+    CoordinateOverflow,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PositionedGlyph {
+    glyph_id: GlyphId,
+    pub cluster: TextRange,
+    pub origin: FlowPoint,
+    pub advance: FlowPoint,
+    pub offset: FlowPoint,
+    pub bidi_level: u8,
+}
+
+impl PositionedGlyph {
+    pub const fn glyph_id(self) -> GlyphId {
+        self.glyph_id
+    }
+}
+
+pub struct PositionedRun<'a> {
+    face: FaceKey,
+    text: TextRange,
+    direction: Direction,
+    bidi_level: u8,
+    end: FlowPoint,
+    glyphs: &'a [PositionedGlyph],
+}
+
+impl PositionedRun<'_> {
+    pub const fn face(&self) -> FaceKey {
+        self.face
+    }
+
+    pub const fn text(&self) -> TextRange {
+        self.text
+    }
+
+    pub const fn direction(&self) -> Direction {
+        self.direction
+    }
+
+    pub const fn end(&self) -> FlowPoint {
+        self.end
+    }
+
+    pub const fn glyphs(&self) -> &[PositionedGlyph] {
+        self.glyphs
+    }
+
+    pub fn carets_into<'output>(
+        &self,
+        output: &'output mut [CaretStop],
+    ) -> Result<&'output [CaretStop], PositionError> {
+        let mut required = 0;
+        let mut previous = None;
+        for glyph in self.glyphs {
+            let text_offset = match self.direction {
+                Direction::LeftToRight => glyph.cluster.start,
+                Direction::RightToLeft => glyph.cluster.end,
+            };
+            if previous != Some(text_offset) {
+                required += 1;
+                previous = Some(text_offset);
+            }
+        }
+        let final_offset = match self.direction {
+            Direction::LeftToRight => self.text.end,
+            Direction::RightToLeft => self.text.start,
+        };
+        if previous != Some(final_offset) {
+            required += 1;
+        }
+        if output.len() < required {
+            return Err(PositionError::InsufficientCapacity { required });
+        }
+        let mut count = 0;
+        for glyph in self.glyphs {
+            let text_offset = match self.direction {
+                Direction::LeftToRight => glyph.cluster.start,
+                Direction::RightToLeft => glyph.cluster.end,
+            };
+            if count == 0 || output[count - 1].text_offset != text_offset {
+                output[count] = CaretStop {
+                    text_offset,
+                    position: glyph.origin,
+                    bidi_level: self.bidi_level,
+                };
+                count += 1;
+            }
+        }
+        let text_offset = match self.direction {
+            Direction::LeftToRight => self.text.end,
+            Direction::RightToLeft => self.text.start,
+        };
+        if count == 0 || output[count - 1].text_offset != text_offset {
+            output[count] = CaretStop {
+                text_offset,
+                position: self.end,
+                bidi_level: self.bidi_level,
+            };
+            count += 1;
+        }
+        Ok(&output[..count])
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct CaretStop {
+    pub text_offset: u32,
+    pub position: FlowPoint,
+    pub bidi_level: u8,
 }
 
 pub trait Typeface {
@@ -502,18 +701,62 @@ mod tests {
             ShapedGlyph::new(GlyphId::new(2), TextRange::new(3, 4)),
         ];
         glyphs[1].set_unsafe_to_break(true);
-        let run = ShapedRun::new(
-            FaceKey::new(4),
-            TextRange::new(0, 4),
-            Direction::LeftToRight,
-            &glyphs,
-        );
+        let run = ShapedRun::new(FaceKey::new(4), TextRange::new(0, 4), 0, &glyphs);
 
         assert!(run.is_safe_break(0));
         assert!(!run.is_safe_break(1));
         assert!(!run.is_safe_break(3));
         assert!(run.is_safe_break(4));
         assert!(!run.is_safe_break(5));
+    }
+
+    #[test]
+    fn run_filters_unsafe_unicode_breaks() {
+        let text = "hello world";
+        let mut glyphs = [ShapedGlyph::default(); 11];
+        for (index, glyph) in glyphs.iter_mut().enumerate() {
+            *glyph = ShapedGlyph::new(
+                GlyphId::new(index as u16),
+                TextRange::new(index as u32, index as u32 + 1),
+            );
+        }
+        glyphs[6].set_unsafe_to_break(true);
+        let run = ShapedRun::new(
+            FaceKey::new(4),
+            TextRange::new(0, text.len() as u32),
+            0,
+            &glyphs,
+        );
+        let breaks = run.line_breaks(text).unwrap().collect::<Vec<_>>();
+
+        assert_eq!(breaks.len(), 1);
+        assert_eq!(breaks[0].offset, text.len());
+    }
+
+    #[test]
+    fn positions_glyphs_and_emits_visual_carets() {
+        let mut glyphs = [
+            ShapedGlyph::new(GlyphId::new(1), TextRange::new(0, 1)),
+            ShapedGlyph::new(GlyphId::new(2), TextRange::new(1, 2)),
+        ];
+        glyphs[0].advance.x = 3;
+        glyphs[1].advance.x = 4;
+        let run = ShapedRun::new(FaceKey::new(4), TextRange::new(0, 2), 0, &glyphs);
+        let mut positioned = [PositionedGlyph::default(); 2];
+        let positioned = run
+            .position_into(FlowPoint { x: 10, y: 20 }, &mut positioned)
+            .unwrap();
+
+        assert_eq!(positioned.glyphs()[0].origin, FlowPoint { x: 10, y: 20 });
+        assert_eq!(positioned.glyphs()[1].origin, FlowPoint { x: 13, y: 20 });
+        assert_eq!(positioned.end(), FlowPoint { x: 17, y: 20 });
+
+        let mut carets = [CaretStop::default(); 3];
+        let carets = positioned.carets_into(&mut carets).unwrap();
+        assert_eq!(carets[0].text_offset, 0);
+        assert_eq!(carets[1].text_offset, 1);
+        assert_eq!(carets[2].text_offset, 2);
+        assert_eq!(carets[2].position.x, 17);
     }
 
     #[test]

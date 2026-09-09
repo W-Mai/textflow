@@ -259,15 +259,30 @@ impl<'output> ParagraphBuilder<'output> {
         broken: &BrokenLines<'_, '_>,
     ) -> Result<ParagraphLayout<'output>, LayoutError> {
         let line_count = broken.lines.len().min(self.options.max_lines);
-        let ellipsized = self.options.overflow == Overflow::Ellipsis
+        let truncates_lines = self.options.overflow == Overflow::Ellipsis
             && line_count > 0
             && line_count < broken.lines.len();
-        self.preflight(input.logical, broken, line_count, ellipsized)?;
+        self.preflight(input.logical, broken, line_count, truncates_lines)?;
         for (line_index, broken_line) in broken.lines[..line_count].iter().enumerate() {
-            if ellipsized && line_index + 1 == line_count {
+            if truncates_lines && line_index + 1 == line_count {
                 self.push_ellipsized_line(input, line_index, *broken_line)?;
             } else {
                 self.push_line(input, line_index, *broken_line, None)?;
+                if self.options.overflow == Overflow::Ellipsis
+                    && line_index + 1 == line_count
+                    && self
+                        .options
+                        .width
+                        .is_some_and(|width| self.buffers.lines[line_index].advance > width)
+                {
+                    let line_run_start = self.buffers.lines[line_index].runs.start as usize;
+                    let line_glyph_start = self.buffers.lines[line_index].glyphs.start as usize;
+                    let line_caret_start = self.buffers.lines[line_index].carets.start as usize;
+                    self.run_count = line_run_start;
+                    self.glyph_count = line_glyph_start;
+                    self.caret_count = line_caret_start;
+                    self.push_ellipsized_line(input, line_index, *broken_line)?;
+                }
             }
         }
         Ok(self.finish(line_count))

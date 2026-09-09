@@ -3,4 +3,17 @@ name = "textflow"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+unicode = [
+    "dep:unicode-linebreak",
+    "dep:unicode-script",
+    "dep:unicode-segmentation",
+]
+bidi = ["unicode"]
+shaping = ["bidi"]
+
 [dependencies]
+unicode-linebreak = { version = "0.1.5", optional = true }
+unicode-script = { version = "0.5.8", optional = true }
+unicode-segmentation = { version = "1.13.3", optional = true }

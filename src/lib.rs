@@ -10,6 +10,8 @@ mod lookahead;
 mod word;
 
 pub mod tests;
+#[cfg(feature = "unicode")]
+pub mod unicode;
 
 #[allow(dead_code)]
 struct TextFlowContext {}

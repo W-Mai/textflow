@@ -283,7 +283,7 @@ fn grapheme_class(character: char) -> GraphemeClass {
         0x1100..=0x115F | 0xA960..=0xA97C => GraphemeClass::L,
         0x1160..=0x11A7 | 0xD7B0..=0xD7C6 => GraphemeClass::V,
         0x11A8..=0x11FF | 0xD7CB..=0xD7FB => GraphemeClass::T,
-        0xAC00..=0xD7A3 if (value - 0xAC00).is_multiple_of(28) => GraphemeClass::Lv,
+        0xAC00..=0xD7A3 if (value - 0xAC00) % 28 == 0 => GraphemeClass::Lv,
         0xAC00..=0xD7A3 => GraphemeClass::Lvt,
         0x1F000..=0x1FAFF | 0x2600..=0x27BF => GraphemeClass::ExtendedPictographic,
         _ if is_extend(value) => GraphemeClass::Extend,

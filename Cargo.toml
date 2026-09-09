@@ -1,7 +1,23 @@
 [package]
-name = "textflow"
+name = "textflow-rs"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.85"
+authors = ["Benign X <1341398182@qq.com>"]
+license = "MIT"
+description = "A bounded no_std text layout and shaping engine"
+repository = "https://github.com/W-Mai/textflow"
+homepage = "https://github.com/W-Mai/textflow"
+documentation = "https://docs.rs/textflow-rs"
+readme = "README.md"
+keywords = ["text", "layout", "shaping", "no-std"]
+categories = ["text-processing", "no-std"]
+
+[lib]
+name = "textflow"
+
+[package.metadata.docs.rs]
+all-features = true
 
 [features]
 default = []

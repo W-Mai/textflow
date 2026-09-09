@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Optional allocation-free Arabic and Thai shaping providers with contextual substitution and mark positioning stages.
+
 ## [0.2.0] - 2026-09-10
 
 ### Added

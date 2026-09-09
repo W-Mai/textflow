@@ -26,5 +26,7 @@ unicode = []
 bidi = ["unicode"]
 shaping = ["bidi"]
 complex-shaping = ["shaping"]
+script-thai = ["complex-shaping"]
+script-arabic = ["complex-shaping"]
 
 [dependencies]

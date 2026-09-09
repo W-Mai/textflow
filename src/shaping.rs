@@ -10,6 +10,9 @@ pub use complex::{
     ShapingData,
 };
 
+#[cfg(any(feature = "script-arabic", feature = "script-thai"))]
+pub mod scripts;
+
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct FontId(u64);

@@ -317,6 +317,27 @@ mod tests {
     }
 
     #[test]
+    fn keeps_arabic_indic_numbers_ltr_inside_rtl_text() {
+        let text = "مرحبا ١٢٣ عالم";
+        let mut logical = slots::<8>();
+        let bidi =
+            BidiText::resolve(text, 0..text.len(), BaseDirection::Auto, &mut logical).unwrap();
+
+        assert_eq!(bidi.direction(), Direction::RightToLeft);
+        assert_eq!(bidi.logical_runs().len(), 3);
+        assert_eq!(bidi.logical_runs()[0].direction, Direction::RightToLeft);
+        assert_eq!(&text[bidi.logical_runs()[1].text.clone()], "١٢٣");
+        assert_eq!(bidi.logical_runs()[1].direction, Direction::LeftToRight);
+        assert_eq!(bidi.logical_runs()[2].direction, Direction::RightToLeft);
+
+        let mut visual = slots::<8>();
+        let visual = bidi.visual_runs_into(&mut visual).unwrap();
+        assert_eq!(&text[visual[0].text.clone()], " عالم");
+        assert_eq!(&text[visual[1].text.clone()], "١٢٣");
+        assert_eq!(&text[visual[2].text.clone()], "مرحبا ");
+    }
+
+    #[test]
     fn reports_capacity_and_unsupported_controls() {
         let mut one = slots::<1>();
         let mixed = "abc אבג";

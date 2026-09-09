@@ -78,13 +78,15 @@ The demo's main stack frame is 2,336 B, including 2,304 B of caller-owned text b
 | `bidi` | Caller-buffer bidirectional paragraph resolution |
 | `shaping` | Format-neutral shaping, fallback, line selection, and positioned output |
 | `complex-shaping` | Bounded script providers with borrowed substitution and positioning data |
+| `script-arabic` | Arabic joining forms, ligatures, cursive attachment, and mark positioning |
+| `script-thai` | Thai cluster substitution and mark positioning |
 | `alloc` | Reusable owning workspace for the shaping pipeline |
 
 Default features are empty. The current Unicode and shaping implementation intentionally supports a defined subset and returns capability errors for unsupported scripts, controls, clusters, and font features.
 
 ## Font integration
 
-A format adapter supplies `Typeface` for complete shaping or `GlyphSource` for scalar cmap, advance, `.notdef`, and pair-kerning access, together with its parser, table cache, raster lookup, storage access, and diagnostics. The `complex-shaping` feature adds `ScriptTypeface`, `ScriptProvider`, and `ShapingData` for sharing script behavior across borrowed font formats.
+A format adapter supplies `Typeface` for complete shaping or `GlyphSource` for scalar cmap, advance, `.notdef`, and pair-kerning access, together with its parser, table cache, raster lookup, storage access, and diagnostics. The `complex-shaping` feature adds `ScriptTypeface`, `ScriptProvider`, and `ShapingData` for sharing script behavior across borrowed font formats. `script-arabic` and `script-thai` expose the allocation-free `scripts::ARABIC` and `scripts::THAI` providers.
 
 ## Documentation
 

@@ -52,6 +52,8 @@ pub mod bidi;
 pub mod layout;
 #[cfg(feature = "shaping")]
 pub mod shaping;
+#[cfg(any(feature = "script-arabic", feature = "script-thai"))]
+pub use crate::shaping::scripts;
 #[cfg(not(feature = "unicode"))]
 mod unicode;
 #[cfg(feature = "unicode")]

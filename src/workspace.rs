@@ -1,9 +1,10 @@
-use crate::bidi::{BaseDirection, BidiError, BidiRun, BidiText};
+use crate::bidi::{BidiError, BidiRun, BidiText};
 use crate::layout::{
     BrokenLine, GlyphRun, LayoutBuffers, LayoutError, LayoutLine, LayoutOptions, LogicalRun,
     LogicalRuns, ParagraphLayout, VisualRun,
 };
-use crate::shaping::{CaretStop, FontFeature, PositionedGlyph, ShapedGlyph, Typeface};
+use crate::shaping::{CaretStop, PositionedGlyph, ShapedGlyph, Typeface};
+use crate::TextFlow;
 use alloc::vec::Vec;
 use core::mem::size_of;
 
@@ -44,6 +45,7 @@ impl LayoutLimits {
 pub enum WorkspaceError {
     Allocation,
     TextLimit { required: usize, limit: usize },
+    DimensionOverflow,
     Bidi(BidiError),
     Layout(LayoutError),
 }
@@ -57,41 +59,6 @@ impl From<BidiError> for WorkspaceError {
 impl From<LayoutError> for WorkspaceError {
     fn from(error: LayoutError) -> Self {
         Self::Layout(error)
-    }
-}
-
-pub struct ParagraphRequest<'a> {
-    pub text: &'a str,
-    pub base_direction: BaseDirection,
-    pub max_width: i32,
-    pub features: &'a [FontFeature],
-    pub options: LayoutOptions,
-}
-
-impl<'a> ParagraphRequest<'a> {
-    pub fn new(text: &'a str, max_width: i32, line_height: i32) -> Self {
-        Self {
-            text,
-            base_direction: BaseDirection::Auto,
-            max_width,
-            features: &[],
-            options: LayoutOptions::new(line_height),
-        }
-    }
-
-    pub const fn with_direction(mut self, direction: BaseDirection) -> Self {
-        self.base_direction = direction;
-        self
-    }
-
-    pub fn with_features(mut self, features: &'a [FontFeature]) -> Self {
-        self.features = features;
-        self
-    }
-
-    pub const fn with_options(mut self, options: LayoutOptions) -> Self {
-        self.options = options;
-        self
     }
 }
 
@@ -130,38 +97,47 @@ impl TextWorkspace {
         self.limits
     }
 
-    pub fn layout<'workspace>(
+    pub(crate) fn layout<'workspace>(
         &'workspace mut self,
-        request: &ParagraphRequest<'_>,
+        flow: &TextFlow<'_>,
         typefaces: &[&dyn Typeface],
     ) -> Result<ParagraphLayout<'workspace>, WorkspaceError> {
-        if request.text.len() > self.limits.text_bytes {
+        if flow.text.len() > self.limits.text_bytes {
             return Err(WorkspaceError::TextLimit {
-                required: request.text.len(),
+                required: flow.text.len(),
                 limit: self.limits.text_bytes,
             });
         }
+        let max_width =
+            i32::try_from(flow.max_width).map_err(|_| WorkspaceError::DimensionOverflow)?;
+        let line_height =
+            i32::try_from(flow.line_height).map_err(|_| WorkspaceError::DimensionOverflow)?;
+        let line_spacing =
+            i32::try_from(flow.line_spacing).map_err(|_| WorkspaceError::DimensionOverflow)?;
+        let line_advance = line_height
+            .checked_add(line_spacing)
+            .ok_or(WorkspaceError::DimensionOverflow)?;
         let bidi = BidiText::resolve(
-            request.text,
-            0..request.text.len(),
-            request.base_direction,
+            flow.text,
+            0..flow.text.len(),
+            flow.base_direction,
             &mut self.bidi,
         )?;
-        let logical = LogicalRuns::resolve(request.text, &bidi, typefaces, &mut self.logical)?;
+        let logical = LogicalRuns::resolve(flow.text, &bidi, typefaces, &mut self.logical)?;
         let shaped = logical.shape_into(
-            request.text,
+            flow.text,
             typefaces,
-            request.features,
+            flow.features,
             &mut self.initial_glyphs,
             &mut self.initial_runs,
         )?;
-        let broken = shaped.break_into(request.text, request.max_width, &mut self.broken)?;
+        let broken = shaped.break_into(flow.text, max_width, &mut self.broken)?;
         Ok(logical.layout_into(
-            request.text,
+            flow.text,
             typefaces,
-            request.features,
+            flow.features,
             &broken,
-            request.options,
+            LayoutOptions::new(line_advance).with_origin(flow.origin),
             LayoutBuffers::new(
                 &mut self.scratch,
                 &mut self.glyphs,
@@ -229,11 +205,14 @@ mod tests {
         let source = Source;
         let typeface = SimpleTypeface::new(&source);
         let typefaces: [&dyn Typeface; 1] = [&typeface];
-        let request = ParagraphRequest::new("ab cd", 3, 10);
-        let layout = workspace.layout(&request, &typefaces).unwrap();
+        let flow = TextFlow::new("ab cd", 3)
+            .with_line_height(10)
+            .with_line_spacing(2);
+        let layout = flow.layout(&typefaces, &mut workspace).unwrap();
 
         assert_eq!(layout.lines().len(), 2);
         assert_eq!(layout.glyphs().len(), 5);
+        assert_eq!(layout.lines()[1].origin().y, 12);
     }
 
     #[test]
@@ -246,14 +225,28 @@ mod tests {
         let source = Source;
         let typeface = SimpleTypeface::new(&source);
         let typefaces: [&dyn Typeface; 1] = [&typeface];
-        let request = ParagraphRequest::new("abc", 3, 10);
+        let flow = TextFlow::new("abc", 3).with_line_height(10);
 
         assert_eq!(
-            workspace.layout(&request, &typefaces).err().unwrap(),
+            flow.layout(&typefaces, &mut workspace).err().unwrap(),
             WorkspaceError::TextLimit {
                 required: 3,
                 limit: 2,
             }
+        );
+    }
+
+    #[test]
+    fn rejects_dimensions_outside_layout_coordinates() {
+        let mut workspace = TextWorkspace::try_new(limits()).unwrap();
+        let source = Source;
+        let typeface = SimpleTypeface::new(&source);
+        let typefaces: [&dyn Typeface; 1] = [&typeface];
+        let flow = TextFlow::new("a", usize::MAX).with_line_height(10);
+
+        assert_eq!(
+            flow.layout(&typefaces, &mut workspace).err().unwrap(),
+            WorkspaceError::DimensionOverflow
         );
     }
 }

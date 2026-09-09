@@ -4,6 +4,19 @@
 
 The core writes Unicode analysis, bidirectional runs, glyph shaping, line breaks, visual runs, and caret positions into caller-owned buffers. The optional `alloc` feature provides a reusable fixed-capacity workspace over the same algorithms.
 
+## Demo
+
+```rust
+use textflow::TextFlow;
+
+let text = "A small UI can still set type well.";
+let lines = TextFlow::new(text, 12)
+    .map(|line| line.slices(text))
+    .collect::<Vec<_>>();
+
+assert_eq!(lines, ["A small UI", "can still", "set type", "well."]);
+```
+
 ## Properties
 
 - `#![no_std]` by default, with no runtime dependencies.
@@ -26,7 +39,7 @@ Default features are empty. The current Unicode and shaping implementation inten
 
 ## Font integration
 
-`textflow-rs` does not parse font files or MIRX payloads. A format adapter implements `Typeface` for complete shaping or `GlyphSource` for scalar cmap, advance, `.notdef`, and pair-kerning access. Parsing, table caches, raster lookup, flash reads, and format-specific errors remain inside that adapter.
+A format adapter supplies `Typeface` for complete shaping or `GlyphSource` for scalar cmap, advance, `.notdef`, and pair-kerning access, together with its parser, table cache, raster lookup, storage access, and diagnostics.
 
 ## License
 

@@ -1,5 +1,22 @@
-#[macro_use]
-extern crate textflow;
+macro_rules! assert_line {
+    ($text: expr, $line:expr, $expected:expr) => {{
+        let result = $line.map(|line| line.slices($text));
+        assert_eq!(result, $expected);
+    }};
+}
+
+macro_rules! assert_flow {
+    ($text:expr => $max_width:expr => $($expected:literal) +) => {{
+        let text = $text;
+        let expected = &[$($expected),+];
+        let mut count = 0;
+        for (index, line) in textflow::TextFlow::new(text, $max_width).enumerate() {
+            assert_eq!(line.slices(text), expected[index], "line {index}");
+            count += 1;
+        }
+        assert_eq!(count, expected.len(), "line count");
+    }};
+}
 
 #[cfg(test)]
 mod testcase_suit_1 {

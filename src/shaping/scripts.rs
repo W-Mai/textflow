@@ -329,6 +329,129 @@ impl ScriptProvider for Thai {
     }
 }
 
+#[cfg(feature = "script-devanagari")]
+/// Built-in Devanagari script provider.
+pub const DEVANAGARI: Devanagari = Devanagari;
+
+#[cfg(feature = "script-devanagari")]
+/// Applies Devanagari conjunct forms, pre-base reordering, and mark positioning.
+pub struct Devanagari;
+
+#[cfg(feature = "script-devanagari")]
+fn devanagari_consonant(character: char) -> bool {
+    matches!(
+        character as u32,
+        0x0915..=0x0939 | 0x0958..=0x095F | 0x0978..=0x097F
+    )
+}
+
+#[cfg(feature = "script-devanagari")]
+fn devanagari_mark(character: char) -> bool {
+    matches!(
+        character as u32,
+        0x0900..=0x0903
+            | 0x093A..=0x094C
+            | 0x094E..=0x0957
+            | 0x0962..=0x0963
+            | 0xA8E0..=0xA8F1
+    )
+}
+
+#[cfg(feature = "script-devanagari")]
+fn glyph_at_text_offset(glyphs: &GlyphBuffer<'_>, offset: u32) -> Option<usize> {
+    glyphs
+        .glyphs()
+        .iter()
+        .position(|glyph| glyph.cluster.start <= offset && offset < glyph.cluster.end)
+}
+
+#[cfg(feature = "script-devanagari")]
+fn reorder_devanagari_prebase_matra(request: &ShapeRequest<'_>, glyphs: &mut GlyphBuffer<'_>) {
+    let mut base = None;
+    for (relative, character) in request.text[request.range.clone()].char_indices() {
+        let offset = (request.range.start + relative) as u32;
+        if devanagari_consonant(character) {
+            base = Some(offset);
+            continue;
+        }
+        if character != '\u{093F}' {
+            continue;
+        }
+        let (Some(base_index), Some(matra_index)) = (
+            base.and_then(|base| glyph_at_text_offset(glyphs, base)),
+            glyph_at_text_offset(glyphs, offset),
+        ) else {
+            continue;
+        };
+        if base_index < matra_index {
+            glyphs.glyphs_mut()[base_index..=matra_index].rotate_right(1);
+        }
+    }
+}
+
+#[cfg(feature = "script-devanagari")]
+impl ScriptProvider for Devanagari {
+    fn script(&self) -> Script {
+        Script::Devanagari
+    }
+
+    fn substitute(
+        &self,
+        request: &ShapeRequest<'_>,
+        font: &dyn super::ShapingData,
+        glyphs: &mut GlyphBuffer<'_>,
+    ) -> Result<(), ShapeError> {
+        for tag in [*b"locl", *b"ccmp", *b"nukt"] {
+            substitute(request, font, glyphs, tag, ALL, true)?;
+        }
+
+        let mut conjunct_forms = 0;
+        for tag in [
+            *b"akhn", *b"rphf", *b"rkrf", *b"pref", *b"blwf", *b"half", *b"pstf", *b"vatu",
+            *b"cjct",
+        ] {
+            conjunct_forms += usize::from(
+                substitute(request, font, glyphs, tag, ALL, true)? == LookupStatus::Applied,
+            );
+        }
+        if request.text[request.range.clone()].contains('\u{094D}') && conjunct_forms == 0 {
+            return Err(ShapeError::ShapingUnavailable);
+        }
+
+        reorder_devanagari_prebase_matra(request, glyphs);
+        for tag in [*b"pres", *b"abvs", *b"blws", *b"psts", *b"haln", *b"calt"] {
+            substitute(request, font, glyphs, tag, ALL, true)?;
+        }
+        normalize_clusters(request, glyphs);
+        Ok(())
+    }
+
+    fn position(
+        &self,
+        request: &ShapeRequest<'_>,
+        font: &dyn super::ShapingData,
+        glyphs: &mut GlyphBuffer<'_>,
+    ) -> Result<(), ShapeError> {
+        position(request, font, glyphs, *b"kern", true)?;
+        position(request, font, glyphs, *b"dist", true)?;
+        let has_marks = request.text[request.range.clone()]
+            .chars()
+            .any(devanagari_mark);
+        let abvm = position(request, font, glyphs, *b"abvm", true)?;
+        let blwm = position(request, font, glyphs, *b"blwm", true)?;
+        let mark = position(request, font, glyphs, *b"mark", true)?;
+        let mkmk = position(request, font, glyphs, *b"mkmk", true)?;
+        if has_marks
+            && [abvm, blwm, mark, mkmk]
+                .iter()
+                .all(|status| *status == LookupStatus::NotFound)
+        {
+            return Err(ShapeError::ShapingUnavailable);
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -394,6 +517,28 @@ mod tests {
             _glyphs: &mut GlyphBuffer<'_>,
         ) -> Result<LookupStatus, ShapeError> {
             Ok(LookupStatus::NotFound)
+        }
+    }
+
+    #[cfg(feature = "script-devanagari")]
+    struct DevanagariData;
+
+    #[cfg(feature = "script-devanagari")]
+    impl ShapingData for DevanagariData {
+        fn substitute(
+            &self,
+            _request: LookupRequest<'_, '_>,
+            _glyphs: &mut GlyphBuffer<'_>,
+        ) -> Result<LookupStatus, ShapeError> {
+            Ok(LookupStatus::Applied)
+        }
+
+        fn position(
+            &self,
+            _request: LookupRequest<'_, '_>,
+            _glyphs: &mut GlyphBuffer<'_>,
+        ) -> Result<LookupStatus, ShapeError> {
+            Ok(LookupStatus::Applied)
         }
     }
 
@@ -527,6 +672,70 @@ mod tests {
         let face = super::super::ScriptTypeface::new(&Font, &MissingData).with_scripts(&providers);
         let text = "กิ";
         let request = ShapeRequest::new(text, 0..text.len(), Direction::LeftToRight, Script::Thai);
+        let mut output = [ShapedGlyph::default(); 2];
+
+        assert_eq!(
+            super::super::Typeface::shape_into(&face, &request, &mut output),
+            Err(ShapeError::ShapingUnavailable)
+        );
+    }
+
+    #[cfg(feature = "script-devanagari")]
+    #[test]
+    fn devanagari_reorders_prebase_matra_without_allocating() {
+        let providers: [&dyn ScriptProvider; 1] = [&DEVANAGARI];
+        let face =
+            super::super::ScriptTypeface::new(&Font, &DevanagariData).with_scripts(&providers);
+        let text = "कि";
+        let request = ShapeRequest::new(
+            text,
+            0..text.len(),
+            Direction::LeftToRight,
+            Script::Devanagari,
+        );
+        let mut output = [ShapedGlyph::default(); 2];
+
+        let count = super::super::Typeface::shape_into(&face, &request, &mut output).unwrap();
+
+        assert_eq!(count, 2);
+        assert_eq!(output[0].glyph_id(), GlyphId::new('\u{093F}' as u16));
+        assert_eq!(output[1].glyph_id(), GlyphId::new('\u{0915}' as u16));
+        assert_eq!(output[0].cluster, output[1].cluster);
+        assert!(output.iter().all(|glyph| glyph.unsafe_to_break()));
+    }
+
+    #[cfg(feature = "script-devanagari")]
+    #[test]
+    fn devanagari_conjuncts_require_shaping_data() {
+        let providers: [&dyn ScriptProvider; 1] = [&DEVANAGARI];
+        let face = super::super::ScriptTypeface::new(&Font, &MissingData).with_scripts(&providers);
+        let text = "क्ष";
+        let request = ShapeRequest::new(
+            text,
+            0..text.len(),
+            Direction::LeftToRight,
+            Script::Devanagari,
+        );
+        let mut output = [ShapedGlyph::default(); 3];
+
+        assert_eq!(
+            super::super::Typeface::shape_into(&face, &request, &mut output),
+            Err(ShapeError::ShapingUnavailable)
+        );
+    }
+
+    #[cfg(feature = "script-devanagari")]
+    #[test]
+    fn devanagari_marks_require_positioning_data() {
+        let providers: [&dyn ScriptProvider; 1] = [&DEVANAGARI];
+        let face = super::super::ScriptTypeface::new(&Font, &MissingData).with_scripts(&providers);
+        let text = "कि";
+        let request = ShapeRequest::new(
+            text,
+            0..text.len(),
+            Direction::LeftToRight,
+            Script::Devanagari,
+        );
         let mut output = [ShapedGlyph::default(); 2];
 
         assert_eq!(

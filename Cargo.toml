@@ -28,5 +28,6 @@ shaping = ["bidi"]
 complex-shaping = ["shaping"]
 script-thai = ["complex-shaping"]
 script-arabic = ["complex-shaping"]
+script-devanagari = ["complex-shaping"]
 
 [dependencies]

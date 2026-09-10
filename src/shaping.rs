@@ -10,7 +10,11 @@ pub use complex::{
     ShapingData,
 };
 
-#[cfg(any(feature = "script-arabic", feature = "script-thai"))]
+#[cfg(any(
+    feature = "script-arabic",
+    feature = "script-thai",
+    feature = "script-devanagari"
+))]
 pub mod scripts;
 
 #[repr(transparent)]

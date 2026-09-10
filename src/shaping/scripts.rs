@@ -368,13 +368,18 @@ fn glyph_at_text_offset(glyphs: &GlyphBuffer<'_>, offset: u32) -> Option<usize> 
 #[cfg(feature = "script-devanagari")]
 fn reorder_devanagari_prebase_matra(request: &ShapeRequest<'_>, glyphs: &mut GlyphBuffer<'_>) {
     let mut base = None;
+    let mut previous = None;
     for (relative, character) in request.text[request.range.clone()].char_indices() {
         let offset = (request.range.start + relative) as u32;
         if devanagari_consonant(character) {
-            base = Some(offset);
+            if character != '\u{0930}' || previous != Some('\u{094D}') {
+                base = Some(offset);
+            }
+            previous = Some(character);
             continue;
         }
         if character != '\u{093F}' {
+            previous = Some(character);
             continue;
         }
         let (Some(base_index), Some(matra_index)) = (
@@ -386,6 +391,7 @@ fn reorder_devanagari_prebase_matra(request: &ShapeRequest<'_>, glyphs: &mut Gly
         if base_index < matra_index {
             glyphs.glyphs_mut()[base_index..=matra_index].rotate_right(1);
         }
+        previous = Some(character);
     }
 }
 
@@ -404,11 +410,12 @@ impl ScriptProvider for Devanagari {
         for tag in [*b"locl", *b"ccmp", *b"nukt"] {
             substitute(request, font, glyphs, tag, ALL, true)?;
         }
+        reorder_devanagari_prebase_matra(request, glyphs);
 
         let mut conjunct_forms = 0;
         for tag in [
             *b"akhn", *b"rphf", *b"rkrf", *b"pref", *b"blwf", *b"half", *b"pstf", *b"vatu",
-            *b"cjct",
+            *b"abvf", *b"cjct",
         ] {
             conjunct_forms += usize::from(
                 substitute(request, font, glyphs, tag, ALL, true)? == LookupStatus::Applied,
@@ -417,9 +424,7 @@ impl ScriptProvider for Devanagari {
         if request.text[request.range.clone()].contains('\u{094D}') && conjunct_forms == 0 {
             return Err(ShapeError::ShapingUnavailable);
         }
-
-        reorder_devanagari_prebase_matra(request, glyphs);
-        for tag in [*b"pres", *b"abvs", *b"blws", *b"psts", *b"haln", *b"calt"] {
+        for tag in [*b"init", *b"pres", *b"abvs", *b"blws", *b"psts", *b"haln"] {
             substitute(request, font, glyphs, tag, ALL, true)?;
         }
         normalize_clusters(request, glyphs);

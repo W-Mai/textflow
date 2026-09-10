@@ -76,11 +76,14 @@ impl<'a> Iterator for Graphemes<'a> {
         let (_, first) = chars.next()?;
         let mut previous = grapheme_class(first);
         let mut regional_count = usize::from(previous == GraphemeClass::Regional);
+        let mut indic_consonant = devanagari_consonant(first);
+        let mut indic_linked = false;
         let mut end = start + first.len_utf8();
 
         for (offset, character) in chars {
             let next = grapheme_class(character);
-            if grapheme_break(previous, next, regional_count) {
+            let indic_conjunct = indic_consonant && indic_linked && devanagari_consonant(character);
+            if grapheme_break(previous, next, regional_count) && !indic_conjunct {
                 break;
             }
             end = start + offset + character.len_utf8();
@@ -88,6 +91,15 @@ impl<'a> Iterator for Graphemes<'a> {
                 regional_count += 1;
             } else if !matches!(next, GraphemeClass::Extend | GraphemeClass::Zwj) {
                 regional_count = 0;
+            }
+            if character == '\u{094D}' && indic_consonant {
+                indic_linked = true;
+            } else if devanagari_consonant(character) {
+                indic_consonant = true;
+                indic_linked = false;
+            } else if !matches!(next, GraphemeClass::Extend | GraphemeClass::Zwj) {
+                indic_consonant = false;
+                indic_linked = false;
             }
             previous = next;
         }
@@ -98,6 +110,13 @@ impl<'a> Iterator for Graphemes<'a> {
             range: start..end,
         })
     }
+}
+
+fn devanagari_consonant(character: char) -> bool {
+    matches!(
+        character as u32,
+        0x0915..=0x0939 | 0x0958..=0x095F | 0x0978..=0x097F
+    )
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -412,6 +431,17 @@ mod tests {
 
         assert_eq!(clusters.len(), 1);
         assert_eq!(clusters[0].text, text);
+    }
+
+    #[test]
+    fn devanagari_linkers_keep_conjuncts_in_one_cluster() {
+        let text = "क्षत्रिय";
+        let clusters = graphemes(text).collect::<Vec<_>>();
+
+        assert_eq!(clusters.len(), 3);
+        assert_eq!(clusters[0].text, "क्ष");
+        assert_eq!(clusters[1].text, "त्रि");
+        assert_eq!(clusters[2].text, "य");
     }
 
     #[cfg(feature = "unicode")]

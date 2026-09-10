@@ -1,6 +1,6 @@
 [package]
 name = "textflow-rs"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 rust-version = "1.85"
 authors = ["Benign X <1341398182@qq.com>"]

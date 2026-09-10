@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-09-10
+
+### Added
+
+- Optional allocation-free Devanagari shaping with conjunct forms, pre-base matra reordering, mark positioning, and linked grapheme clusters.
+
 ## [0.2.2] - 2026-09-10
 
 ### Fixed
@@ -33,7 +39,8 @@
 - Optional reusable `alloc` workspace with fixed admission limits.
 - Explicit capacity, font access, and unsupported-text errors.
 
-[Unreleased]: https://github.com/W-Mai/textflow/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/W-Mai/textflow/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/W-Mai/textflow/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/W-Mai/textflow/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/W-Mai/textflow/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/W-Mai/textflow/compare/v0.1.0...v0.2.0

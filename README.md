@@ -54,7 +54,7 @@ assert_eq!(lines, ["A small UI", "can still", "set type", "well."]);
 - Caller-owned buffers with explicit capacity and unsupported-text errors.
 - Format-neutral `Typeface` and `GlyphSource` interfaces for TTF, OpenType, MIRX, flash-backed assets, and application-specific font stores.
 - Stable glyph IDs, UTF-8 cluster ranges, visual bidi runs, safe line boundaries, and caret positions.
-- Optional reusable heap workspace with runtime limits, lazy growth, and direct caller-owned output.
+- Optional reusable heap workspace with element and byte limits, lazy growth, and direct caller-owned output.
 
 ## Embedded footprint
 

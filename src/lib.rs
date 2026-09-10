@@ -72,6 +72,8 @@ pub struct TextFlow<'a> {
     text: &'a str,
     #[cfg(feature = "shaping")]
     max_width: usize,
+    #[cfg(feature = "shaping")]
+    width: usize,
     line_height: usize,
     line_spacing: usize,
     lines: Lines<'a>,
@@ -104,6 +106,8 @@ impl<'a> TextFlow<'a> {
             text,
             #[cfg(feature = "shaping")]
             max_width,
+            #[cfg(feature = "shaping")]
+            width: max_width,
             line_height: 0,
             line_spacing: 0,
             lines: Lines::new(text, max_width, 4),
@@ -137,6 +141,13 @@ impl<'a> TextFlow<'a> {
 
     pub const fn with_line_spacing(mut self, line_spacing: usize) -> Self {
         self.line_spacing = line_spacing;
+        self
+    }
+
+    #[cfg(feature = "shaping")]
+    /// Sets the width used for alignment and overflow without changing line breaks.
+    pub const fn with_width(mut self, width: usize) -> Self {
+        self.width = width;
         self
     }
 

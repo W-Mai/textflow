@@ -1530,6 +1530,7 @@ impl<const RUNS: usize, const GLYPHS: usize, const LINES: usize, const CARETS: u
         typefaces: &[&dyn Typeface],
     ) -> Result<ParagraphLayout<'scratch>, LayoutError> {
         let max_width = i32::try_from(flow.max_width).map_err(|_| LayoutError::InvalidWidth)?;
+        let width = i32::try_from(flow.width).map_err(|_| LayoutError::InvalidWidth)?;
         let line_height =
             i32::try_from(flow.line_height).map_err(|_| LayoutError::InvalidLineHeight)?;
         let line_spacing =
@@ -1572,7 +1573,7 @@ impl<const RUNS: usize, const GLYPHS: usize, const LINES: usize, const CARETS: u
             LayoutOptions::new(line_advance)
                 .with_origin(flow.origin)
                 .with_spacing(spacing)
-                .with_width(max_width)
+                .with_width(width)
                 .with_alignment(flow.alignment)
                 .with_direction(direction)
                 .with_max_lines(flow.max_lines)

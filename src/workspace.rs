@@ -16,6 +16,7 @@ pub struct LayoutLimits {
     pub glyphs: usize,
     pub scratch_glyphs: usize,
     pub lines: usize,
+    pub memory_bytes: usize,
 }
 
 impl LayoutLimits {
@@ -39,6 +40,7 @@ impl LayoutLimits {
 /// Failure to admit, allocate, or lay out a paragraph with a workspace.
 pub enum WorkspaceError {
     Allocation,
+    MemoryLimit { required: usize, limit: usize },
     TextLimit { required: usize, limit: usize },
     RunLimit { required: usize, limit: usize },
     GlyphLimit { required: usize, limit: usize },
@@ -132,6 +134,19 @@ impl TextWorkspace {
         self.limits
     }
 
+    /// Updates the private-buffer byte limit without releasing retained capacity.
+    pub fn set_memory_limit(&mut self, memory_bytes: usize) -> Result<(), WorkspaceError> {
+        let required = self.resident_bytes();
+        if required > memory_bytes {
+            return Err(WorkspaceError::MemoryLimit {
+                required,
+                limit: memory_bytes,
+            });
+        }
+        self.limits.memory_bytes = memory_bytes;
+        Ok(())
+    }
+
     pub(crate) fn layout_into(
         &mut self,
         flow: &TextFlow<'_>,
@@ -172,6 +187,7 @@ impl TextWorkspace {
     ) -> Result<LayoutResult, AttemptError> {
         let max_width =
             i32::try_from(flow.max_width).map_err(|_| WorkspaceError::DimensionOverflow)?;
+        let width = i32::try_from(flow.width).map_err(|_| WorkspaceError::DimensionOverflow)?;
         let line_height =
             i32::try_from(flow.line_height).map_err(|_| WorkspaceError::DimensionOverflow)?;
         let line_spacing =
@@ -225,7 +241,7 @@ impl TextWorkspace {
                 LayoutOptions::new(line_advance)
                     .with_origin(flow.origin)
                     .with_spacing(spacing)
-                    .with_width(max_width)
+                    .with_width(width)
                     .with_alignment(flow.alignment)
                     .with_direction(bidi.direction())
                     .with_max_lines(flow.max_lines)
@@ -268,6 +284,15 @@ impl TextWorkspace {
         if required > limit {
             return Err(kind.limit_error(required, limit));
         }
+        let projected = self
+            .projected_bytes(kind, required)
+            .ok_or(WorkspaceError::DimensionOverflow)?;
+        if projected > self.limits.memory_bytes {
+            return Err(WorkspaceError::MemoryLimit {
+                required: projected,
+                limit: self.limits.memory_bytes,
+            });
+        }
         match kind {
             BufferKind::Runs => {
                 resize_slots(&mut self.bidi, required, BidiRun::empty())?;
@@ -282,6 +307,18 @@ impl TextWorkspace {
             }
             BufferKind::Lines => resize_slots(&mut self.broken, required, BrokenLine::empty()),
         }
+    }
+
+    fn projected_bytes(&self, kind: BufferKind, required: usize) -> Option<usize> {
+        let added = match kind {
+            BufferKind::Runs => additional_bytes(&self.bidi, required)?
+                .checked_add(additional_bytes(&self.logical, required)?)?
+                .checked_add(additional_bytes(&self.initial_runs, required)?)?,
+            BufferKind::Glyphs => additional_bytes(&self.initial_glyphs, required)?,
+            BufferKind::Scratch => additional_bytes(&self.scratch, required)?,
+            BufferKind::Lines => additional_bytes(&self.broken, required)?,
+        };
+        self.resident_bytes().checked_add(added)
     }
 }
 
@@ -364,6 +401,12 @@ fn vec_bytes<T>(values: &Vec<T>) -> usize {
     values.capacity().saturating_mul(size_of::<T>())
 }
 
+fn additional_bytes<T>(values: &Vec<T>, required: usize) -> Option<usize> {
+    required
+        .saturating_sub(values.capacity())
+        .checked_mul(size_of::<T>())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -398,6 +441,7 @@ mod tests {
             glyphs: 8,
             scratch_glyphs: 4,
             lines: 4,
+            memory_bytes: usize::MAX,
         }
     }
 
@@ -497,6 +541,7 @@ mod tests {
             glyphs: 0,
             scratch_glyphs: 0,
             lines: 0,
+            memory_bytes: 0,
         });
         let source = Source;
         let typeface = SimpleTypeface::new(&source);
@@ -539,6 +584,73 @@ mod tests {
             error,
             WorkspaceError::Layout(LayoutError::InsufficientPositionedCapacity { minimum: 2 })
         );
+    }
+
+    #[test]
+    fn breaking_and_alignment_widths_are_independent() {
+        let mut workspace = TextWorkspace::new(limits());
+        let source = Source;
+        let typeface = SimpleTypeface::new(&source);
+        let typefaces: [&dyn Typeface; 1] = [&typeface];
+        let flow = TextFlow::new("ab cd", 3)
+            .with_width(10)
+            .with_line_height(10)
+            .with_alignment(crate::layout::Alignment::Center);
+        let mut output = OutputStorage::new();
+
+        output
+            .with_layout(&flow, &typefaces, &mut workspace, |layout| {
+                assert_eq!(layout.lines().len(), 2);
+                assert_eq!(layout.lines()[0].origin().x, 3);
+                assert_eq!(layout.lines()[1].origin().x, 4);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn memory_limit_rejects_growth_before_allocation() {
+        let mut limits = limits();
+        limits.memory_bytes = 0;
+        let mut workspace = TextWorkspace::new(limits);
+        let source = Source;
+        let typeface = SimpleTypeface::new(&source);
+        let typefaces: [&dyn Typeface; 1] = [&typeface];
+        let flow = TextFlow::new("a", 3).with_line_height(10);
+        let mut output = OutputStorage::new();
+
+        assert!(matches!(
+            output.error(&flow, &typefaces, &mut workspace),
+            WorkspaceError::MemoryLimit {
+                required: _,
+                limit: 0
+            }
+        ));
+        assert_eq!(workspace.resident_bytes(), 0);
+    }
+
+    #[test]
+    fn retained_storage_sets_the_minimum_memory_limit() {
+        let mut workspace = TextWorkspace::new(limits());
+        let source = Source;
+        let typeface = SimpleTypeface::new(&source);
+        let typefaces: [&dyn Typeface; 1] = [&typeface];
+        let flow = TextFlow::new("ab", 3).with_line_height(10);
+        let mut output = OutputStorage::new();
+        output
+            .with_layout(&flow, &typefaces, &mut workspace, |_| {})
+            .unwrap();
+        let resident = workspace.resident_bytes();
+
+        workspace.set_memory_limit(resident).unwrap();
+        assert_eq!(workspace.limits().memory_bytes, resident);
+        assert_eq!(
+            workspace.set_memory_limit(resident - 1),
+            Err(WorkspaceError::MemoryLimit {
+                required: resident,
+                limit: resident - 1,
+            })
+        );
+        assert_eq!(workspace.limits().memory_bytes, resident);
     }
 
     #[test]

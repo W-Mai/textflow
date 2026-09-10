@@ -1,6 +1,6 @@
-use crate::bidi::{BidiText, Direction};
+use crate::bidi::{BidiError, BidiRun, BidiText, Direction};
 use crate::shaping::{
-    CaretStop, FlowPoint, FontAccessError, FontFeature, FontId, LineEdges, PositionError,
+    CaretStop, FlowPoint, FontAccessError, FontFeature, FontId, GlyphId, LineEdges, PositionError,
     PositionedGlyph, ShapeError, ShapeRequest, ShapedGlyph, ShapedRun, TextRange, Typeface,
 };
 use crate::unicode::{
@@ -11,7 +11,7 @@ use core::iter::Peekable;
 use crate::buffer::SliceWriter;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct LogicalRun {
+pub(crate) struct LogicalRun {
     text: TextRange,
     typeface: u16,
     script: Script,
@@ -19,7 +19,7 @@ pub struct LogicalRun {
 }
 
 impl LogicalRun {
-    pub const fn empty() -> Self {
+    pub(crate) const fn empty() -> Self {
         Self {
             text: TextRange::new(0, 0),
             typeface: 0,
@@ -28,25 +28,19 @@ impl LogicalRun {
         }
     }
 
-    pub const fn text(self) -> TextRange {
-        self.text
-    }
-
-    pub const fn typeface_index(self) -> usize {
+    const fn typeface_index(self) -> usize {
         self.typeface as usize
     }
 
-    pub const fn script(self) -> Script {
+    #[cfg(test)]
+    const fn script(self) -> Script {
         self.script
-    }
-
-    pub const fn bidi_level(self) -> u8 {
-        self.bidi_level
     }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LayoutError {
+    Bidi(BidiError),
     NoTypeface,
     TooManyTypefaces,
     InsufficientRunCapacity { required: usize },
@@ -70,13 +64,24 @@ impl From<FontAccessError> for LayoutError {
     }
 }
 
-pub struct LogicalRuns<'a> {
+impl From<BidiError> for LayoutError {
+    fn from(error: BidiError) -> Self {
+        match error {
+            BidiError::InsufficientCapacity { required } => {
+                Self::InsufficientRunCapacity { required }
+            }
+            error => Self::Bidi(error),
+        }
+    }
+}
+
+pub(crate) struct LogicalRuns<'a> {
     text: TextRange,
     runs: &'a [LogicalRun],
 }
 
 impl<'a> LogicalRuns<'a> {
-    pub fn resolve(
+    pub(crate) fn resolve(
         text: &str,
         bidi: &BidiText<'_>,
         typefaces: &[&dyn Typeface],
@@ -126,15 +131,12 @@ impl<'a> LogicalRuns<'a> {
         })
     }
 
-    pub const fn text(&self) -> TextRange {
-        self.text
-    }
-
-    pub const fn runs(&self) -> &[LogicalRun] {
+    #[cfg(test)]
+    const fn runs(&self) -> &[LogicalRun] {
         self.runs
     }
 
-    pub fn shape_into<'output>(
+    pub(crate) fn shape_into<'output>(
         &self,
         text: &str,
         typefaces: &[&dyn Typeface],
@@ -198,7 +200,7 @@ impl<'a> LogicalRuns<'a> {
         })
     }
 
-    pub fn layout_into<'output>(
+    pub(crate) fn layout_into<'output>(
         &self,
         text: &str,
         typefaces: &[&dyn Typeface],
@@ -968,7 +970,7 @@ fn select_typeface(grapheme: &str, typefaces: &[&dyn Typeface]) -> Result<u16, F
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct GlyphRun {
+pub(crate) struct GlyphRun {
     text: TextRange,
     glyphs: TextRange,
     font_id: FontId,
@@ -976,7 +978,7 @@ pub struct GlyphRun {
 }
 
 impl GlyphRun {
-    pub const fn empty() -> Self {
+    pub(crate) const fn empty() -> Self {
         Self {
             text: TextRange::new(0, 0),
             glyphs: TextRange::new(0, 0),
@@ -984,25 +986,9 @@ impl GlyphRun {
             bidi_level: 0,
         }
     }
-
-    pub const fn text(self) -> TextRange {
-        self.text
-    }
-
-    pub const fn glyphs(self) -> TextRange {
-        self.glyphs
-    }
-
-    pub const fn font_id(self) -> FontId {
-        self.font_id
-    }
-
-    pub const fn bidi_level(self) -> u8 {
-        self.bidi_level
-    }
 }
 
-pub struct ShapedText<'a> {
+pub(crate) struct ShapedText<'a> {
     text: TextRange,
     glyphs: &'a [ShapedGlyph],
     runs: &'a [GlyphRun],
@@ -1028,19 +1014,18 @@ pub struct TextSpacing {
 }
 
 impl ShapedText<'_> {
-    pub const fn text(&self) -> TextRange {
-        self.text
-    }
-
-    pub const fn glyphs(&self) -> &[ShapedGlyph] {
+    #[cfg(test)]
+    const fn glyphs(&self) -> &[ShapedGlyph] {
         self.glyphs
     }
 
-    pub const fn runs(&self) -> &[GlyphRun] {
+    #[cfg(test)]
+    const fn runs(&self) -> &[GlyphRun] {
         self.runs
     }
 
-    pub fn run(&self, index: usize) -> Option<ShapedRun<'_>> {
+    #[cfg(test)]
+    fn run(&self, index: usize) -> Option<ShapedRun<'_>> {
         let run = *self.runs.get(index)?;
         let glyphs = self
             .glyphs
@@ -1066,7 +1051,8 @@ impl ShapedText<'_> {
         })
     }
 
-    pub fn break_into<'shaped, 'output>(
+    #[cfg(test)]
+    fn break_into<'shaped, 'output>(
         &'shaped self,
         text: &str,
         max_width: i32,
@@ -1078,7 +1064,8 @@ impl ShapedText<'_> {
     }
 
     /// Breaks shaped text with additional opportunities supplied by `provider`.
-    pub fn break_into_with<'shaped, 'output>(
+    #[cfg(test)]
+    fn break_into_with<'shaped, 'output>(
         &'shaped self,
         text: &str,
         max_width: i32,
@@ -1175,14 +1162,14 @@ impl<'a> Iterator for LogicalGlyphs<'a> {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct BrokenLine {
+pub(crate) struct BrokenLine {
     text: TextRange,
     advance: i32,
     end: LineEnd,
 }
 
 impl BrokenLine {
-    pub const fn empty() -> Self {
+    pub(crate) const fn empty() -> Self {
         Self {
             text: TextRange::new(0, 0),
             advance: 0,
@@ -1190,11 +1177,13 @@ impl BrokenLine {
         }
     }
 
-    pub const fn text(self) -> TextRange {
+    #[cfg(test)]
+    const fn text(self) -> TextRange {
         self.text
     }
 
-    pub const fn advance(self) -> i32 {
+    #[cfg(test)]
+    const fn advance(self) -> i32 {
         self.advance
     }
 }
@@ -1207,13 +1196,14 @@ enum LineEnd {
     Paragraph,
 }
 
-pub struct BrokenLines<'shaped, 'output> {
+pub(crate) struct BrokenLines<'shaped, 'output> {
     shaped: &'shaped ShapedText<'shaped>,
     lines: &'output [BrokenLine],
 }
 
 impl BrokenLines<'_, '_> {
-    pub const fn lines(&self) -> &[BrokenLine] {
+    #[cfg(test)]
+    const fn lines(&self) -> &[BrokenLine] {
         self.lines
     }
 }
@@ -1482,16 +1472,140 @@ pub enum Overflow {
     Ellipsis,
 }
 
-pub struct LayoutBuffers<'a> {
-    pub scratch: &'a mut [ShapedGlyph],
-    pub glyphs: &'a mut [PositionedGlyph],
-    pub runs: &'a mut [VisualRun],
-    pub lines: &'a mut [LayoutLine],
-    pub carets: &'a mut [CaretStop],
+/// Fixed-capacity storage for allocation-free paragraph layout.
+///
+/// `RUNS` bounds bidi, script, fallback, and visual runs. `GLYPHS` bounds both
+/// intermediate and positioned glyphs. `LINES` bounds wrapped lines, and
+/// `CARETS` bounds emitted caret stops. The storage is reusable and performs
+/// no allocation during [`crate::TextFlow::layout_into`].
+pub struct LayoutScratch<
+    const RUNS: usize,
+    const GLYPHS: usize,
+    const LINES: usize,
+    const CARETS: usize,
+> {
+    bidi: [BidiRun; RUNS],
+    logical: [LogicalRun; RUNS],
+    initial_glyphs: [ShapedGlyph; GLYPHS],
+    initial_runs: [GlyphRun; RUNS],
+    broken: [BrokenLine; LINES],
+    scratch: [ShapedGlyph; GLYPHS],
+    glyphs: [PositionedGlyph; GLYPHS],
+    runs: [VisualRun; RUNS],
+    lines: [LayoutLine; LINES],
+    carets: [CaretStop; CARETS],
+}
+
+impl<const RUNS: usize, const GLYPHS: usize, const LINES: usize, const CARETS: usize>
+    LayoutScratch<RUNS, GLYPHS, LINES, CARETS>
+{
+    const EMPTY: Self = Self {
+        bidi: [const { BidiRun::empty() }; RUNS],
+        logical: [const { LogicalRun::empty() }; RUNS],
+        initial_glyphs: [const { ShapedGlyph::new(GlyphId::new(0), TextRange::new(0, 0)) }; GLYPHS],
+        initial_runs: [const { GlyphRun::empty() }; RUNS],
+        broken: [const { BrokenLine::empty() }; LINES],
+        scratch: [const { ShapedGlyph::new(GlyphId::new(0), TextRange::new(0, 0)) }; GLYPHS],
+        glyphs: [const { PositionedGlyph::new(GlyphId::new(0), FlowPoint { x: 0, y: 0 }) }; GLYPHS],
+        runs: [const { VisualRun::empty() }; RUNS],
+        lines: [const { LayoutLine::empty() }; LINES],
+        carets: [const {
+            CaretStop {
+                text_offset: 0,
+                position: FlowPoint { x: 0, y: 0 },
+                bidi_level: 0,
+            }
+        }; CARETS],
+    };
+
+    pub const fn new() -> Self {
+        Self::EMPTY
+    }
+
+    // Keeps fixed storage and pipeline temporaries in separate embedded stack frames.
+    #[inline(never)]
+    pub(crate) fn layout<'scratch>(
+        &'scratch mut self,
+        flow: &crate::TextFlow<'_>,
+        typefaces: &[&dyn Typeface],
+    ) -> Result<ParagraphLayout<'scratch>, LayoutError> {
+        let max_width = i32::try_from(flow.max_width).map_err(|_| LayoutError::InvalidWidth)?;
+        let line_height =
+            i32::try_from(flow.line_height).map_err(|_| LayoutError::InvalidLineHeight)?;
+        let line_spacing =
+            i32::try_from(flow.line_spacing).map_err(|_| LayoutError::InvalidLineHeight)?;
+        let line_advance = line_height
+            .checked_add(line_spacing)
+            .ok_or(LayoutError::CoordinateOverflow)?;
+        let bidi = BidiText::resolve(
+            flow.text,
+            0..flow.text.len(),
+            flow.base_direction,
+            &mut self.bidi,
+        )?;
+        let direction = bidi.direction();
+        let logical = LogicalRuns::resolve(flow.text, &bidi, typefaces, &mut self.logical)?;
+        let shaped = logical.shape_into(
+            flow.text,
+            typefaces,
+            flow.features,
+            &mut self.initial_glyphs,
+            &mut self.initial_runs,
+        )?;
+        let spacing = TextSpacing {
+            letter: flow.letter_spacing,
+            word: flow.word_spacing,
+        };
+        let broken = shaped.break_into_with_provider(
+            flow.text,
+            max_width,
+            flow.wrap,
+            spacing,
+            flow.line_break_provider,
+            &mut self.broken,
+        )?;
+        logical.layout_into(
+            flow.text,
+            typefaces,
+            flow.features,
+            &broken,
+            LayoutOptions::new(line_advance)
+                .with_origin(flow.origin)
+                .with_spacing(spacing)
+                .with_width(max_width)
+                .with_alignment(flow.alignment)
+                .with_direction(direction)
+                .with_max_lines(flow.max_lines)
+                .with_overflow(flow.overflow),
+            LayoutBuffers::new(
+                &mut self.scratch,
+                &mut self.glyphs,
+                &mut self.runs,
+                &mut self.lines,
+                &mut self.carets,
+            ),
+        )
+    }
+}
+
+impl<const RUNS: usize, const GLYPHS: usize, const LINES: usize, const CARETS: usize> Default
+    for LayoutScratch<RUNS, GLYPHS, LINES, CARETS>
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub(crate) struct LayoutBuffers<'a> {
+    scratch: &'a mut [ShapedGlyph],
+    glyphs: &'a mut [PositionedGlyph],
+    runs: &'a mut [VisualRun],
+    lines: &'a mut [LayoutLine],
+    carets: &'a mut [CaretStop],
 }
 
 impl<'a> LayoutBuffers<'a> {
-    pub fn new(
+    pub(crate) fn new(
         scratch: &'a mut [ShapedGlyph],
         glyphs: &'a mut [PositionedGlyph],
         runs: &'a mut [VisualRun],
@@ -1733,6 +1847,26 @@ mod tests {
         fn glyph_advance(&self, _glyph: GlyphId) -> Result<FlowPoint, FontAccessError> {
             Ok(FlowPoint { x: 1, y: 0 })
         }
+    }
+
+    #[test]
+    fn fixed_scratch_runs_the_complete_pipeline() {
+        let font = SimpleTypeface::new(&Source {
+            key: 7,
+            ascii: true,
+        });
+        let typefaces: [&dyn Typeface; 1] = [&font];
+        let mut scratch = LayoutScratch::<2, 4, 2, 8>::new();
+
+        let layout = crate::TextFlow::new("abc", 10)
+            .with_line_height(12)
+            .layout_into(&typefaces, &mut scratch)
+            .unwrap();
+
+        assert_eq!(layout.lines().len(), 1);
+        assert_eq!(layout.runs().len(), 1);
+        assert_eq!(layout.glyphs().len(), 3);
+        assert_eq!(layout.carets().len(), 4);
     }
 
     struct EdgeTypeface;

@@ -2,15 +2,11 @@
 #![no_main]
 
 use core::hint::black_box;
-use textflow::bidi::{BaseDirection, BidiRun, BidiText};
-use textflow::layout::{
-    BrokenLine, GlyphRun, LayoutBuffers, LayoutLine, LayoutOptions, LogicalRun, LogicalRuns,
-    TextSpacing, VisualRun, WrapMode,
-};
+use textflow::bidi::BaseDirection;
 use textflow::shaping::{
-    CaretStop, FlowPoint, FontAccessError, FontId, FontMetrics, GlyphId, GlyphSource,
-    PositionedGlyph, ShapedGlyph, SimpleTypeface, Typeface,
+    FlowPoint, FontAccessError, FontId, FontMetrics, GlyphId, GlyphSource, SimpleTypeface, Typeface,
 };
+use textflow::{LayoutScratch, TextFlow, WrapMode};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -45,56 +41,12 @@ fn layout_once() -> (usize, usize, usize, usize) {
     let face = SimpleTypeface::new(&font);
     let faces: [&dyn Typeface; 1] = [&face];
 
-    let mut bidi_storage = [const { BidiRun::empty() }; 4];
-    let bidi =
-        BidiText::resolve(TEXT, 0..TEXT.len(), BaseDirection::Auto, &mut bidi_storage).unwrap();
-
-    let mut logical_storage = [LogicalRun::empty(); 8];
-    let logical = LogicalRuns::resolve(TEXT, &bidi, &faces, &mut logical_storage).unwrap();
-    let mut shaped_storage = [ShapedGlyph::default(); 12];
-    let mut glyph_run_storage = [GlyphRun::empty(); 8];
-    let mut broken_storage = [BrokenLine::empty(); 4];
-    let broken = {
-        let shaped = logical
-            .shape_into(
-                TEXT,
-                &faces,
-                &[],
-                &mut shaped_storage,
-                &mut glyph_run_storage,
-            )
-            .unwrap();
-        shaped
-            .break_into(
-                TEXT,
-                72,
-                WrapMode::Word,
-                TextSpacing::default(),
-                &mut broken_storage,
-            )
-            .unwrap()
-    };
-
-    let mut scratch = [ShapedGlyph::default(); 12];
-    let mut positioned = [PositionedGlyph::default(); 12];
-    let mut visual_runs = [VisualRun::empty(); 8];
-    let mut lines = [LayoutLine::empty(); 4];
-    let mut carets = [CaretStop::default(); 20];
-    let layout = logical
-        .layout_into(
-            TEXT,
-            &faces,
-            &[],
-            &broken,
-            LayoutOptions::new(18),
-            LayoutBuffers::new(
-                &mut scratch,
-                &mut positioned,
-                &mut visual_runs,
-                &mut lines,
-                &mut carets,
-            ),
-        )
+    let mut scratch = LayoutScratch::<4, 12, 4, 20>::new();
+    let layout = TextFlow::new(TEXT, 72)
+        .with_line_height(18)
+        .with_direction(BaseDirection::Auto)
+        .with_wrap(WrapMode::Word)
+        .layout_into(&faces, &mut scratch)
         .unwrap();
 
     (

@@ -58,17 +58,17 @@ assert_eq!(lines, ["A small UI", "can still", "set type", "well."]);
 
 ## Embedded footprint
 
-The [ESP32-C3 demo](examples/esp32c3/) runs bidirectional resolution, font selection, shaping, wrapping, visual reordering, glyph positioning, and caret generation without an allocator. All working capacity is supplied by fixed arrays.
+The [ESP32-C3 demo](examples/esp32c3/) runs bidirectional resolution, font selection, shaping, wrapping, visual reordering, glyph positioning, and caret generation without an allocator. One fixed-capacity `LayoutScratch` value owns all reusable working storage.
 
 Measured with Rust 1.97.0, `esp-hal` 1.1.0, size optimization, LTO, one codegen unit, and aborting panics:
 
 | ESP32-C3 release image | App partition | Static RAM (`.data + .bss`) |
 | --- | ---: | ---: |
 | ESP-HAL baseline | 73,536 B | 808 B |
-| Full TextFlow pipeline | 83,024 B | 824 B |
-| TextFlow delta | **9,488 B** | **16 B** |
+| Full TextFlow pipeline | 87,056 B | 824 B |
+| TextFlow delta | **13,520 B** | **16 B** |
 
-The demo's main stack frame is 2,336 B, including 2,304 B of caller-owned text buffers. Heap usage is 0 B. Run `examples/esp32c3/measure.sh` to rebuild both images and reproduce the Flash and static RAM comparison.
+The demo's main stack frame is 2,272 B, including a 2,016 B `LayoutScratch`. Heap usage is 0 B. Run `examples/esp32c3/measure.sh` to rebuild both images and reproduce the Flash and static RAM comparison.
 
 ## Feature flags
 
@@ -80,6 +80,7 @@ The demo's main stack frame is 2,336 B, including 2,304 B of caller-owned text b
 | `complex-shaping` | Bounded script providers with borrowed substitution and positioning data |
 | `script-arabic` | Arabic joining forms, ligatures, cursive attachment, and mark positioning |
 | `script-thai` | Thai cluster substitution and mark positioning |
+| `script-devanagari` | Devanagari conjunct forms, pre-base matra reordering, and mark positioning |
 | `alloc` | Reusable owning workspace for the shaping pipeline |
 
 Default features are empty. The current Unicode and shaping implementation intentionally supports a defined subset and returns capability errors for unsupported scripts, controls, clusters, and font features.

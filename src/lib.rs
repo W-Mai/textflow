@@ -27,7 +27,9 @@ extern crate std;
 use crate::line::Lines;
 
 #[cfg(feature = "shaping")]
-pub use crate::layout::{Alignment, Overflow, WrapMode};
+pub use crate::layout::{
+    Alignment, LayoutError, LayoutScratch, Overflow, ParagraphLayout, WrapMode,
+};
 pub use crate::line::Line;
 
 #[cfg(feature = "shaping")]
@@ -95,12 +97,12 @@ pub struct TextFlow<'a> {
 
 impl<'a> TextFlow<'a> {
     pub fn new(text: &'a str, max_width: usize) -> Self {
-        let mut flow = TextFlow {
+        TextFlow {
             text,
             max_width,
             line_height: 0,
             line_spacing: 0,
-            lines: Lines::new("", 0, 4),
+            lines: Lines::new(text, max_width, 4),
             #[cfg(feature = "shaping")]
             base_direction: BaseDirection::Auto,
             #[cfg(feature = "shaping")]
@@ -121,11 +123,7 @@ impl<'a> TextFlow<'a> {
             max_lines: usize::MAX,
             #[cfg(feature = "shaping")]
             overflow: Overflow::Clip,
-        };
-
-        flow.lines = Lines::new(flow.text, flow.max_width, 4);
-
-        flow
+        }
     }
 
     pub const fn with_line_height(mut self, line_height: usize) -> Self {
@@ -197,6 +195,21 @@ impl<'a> TextFlow<'a> {
     pub const fn with_overflow(mut self, overflow: Overflow) -> Self {
         self.overflow = overflow;
         self
+    }
+
+    #[cfg(feature = "shaping")]
+    pub fn layout_into<
+        'scratch,
+        const RUNS: usize,
+        const GLYPHS: usize,
+        const LINES: usize,
+        const CARETS: usize,
+    >(
+        &self,
+        typefaces: &[&dyn crate::shaping::Typeface],
+        scratch: &'scratch mut LayoutScratch<RUNS, GLYPHS, LINES, CARETS>,
+    ) -> Result<ParagraphLayout<'scratch>, LayoutError> {
+        scratch.layout(self, typefaces)
     }
 
     #[cfg(all(feature = "alloc", feature = "shaping"))]

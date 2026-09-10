@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `TextFlow::layout_into` runs the complete allocation-free paragraph pipeline with one reusable `LayoutScratch` value.
+- Logical-run, initial-shaping, and line-breaking records are internal implementation details.
+
 ## [0.2.3] - 2026-09-10
 
 ### Added

@@ -1,6 +1,6 @@
 # ESP32-C3
 
-This `no_std` application runs bidirectional analysis, font selection, shaping, line breaking, visual reordering, glyph positioning, and caret generation with fixed caller-owned buffers.
+This `no_std` application runs bidirectional analysis, font selection, shaping, line breaking, visual reordering, glyph positioning, and caret generation with one fixed-capacity `LayoutScratch` value.
 
 ```bash
 rustup target add riscv32imc-unknown-none-elf

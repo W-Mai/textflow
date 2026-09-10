@@ -9,42 +9,41 @@ use alloc::vec::Vec;
 use core::mem::size_of;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Runtime limits for lazily allocated private pipeline storage.
 pub struct LayoutLimits {
     pub text_bytes: usize,
     pub runs: usize,
-    pub visual_runs: usize,
     pub glyphs: usize,
     pub scratch_glyphs: usize,
     pub lines: usize,
-    pub carets: usize,
 }
 
 impl LayoutLimits {
+    /// Element storage for private buffers at their limits.
+    ///
+    /// Final output and allocator bookkeeping are not included.
     pub fn buffer_bytes(self) -> Option<usize> {
         let run_bytes = size_of::<BidiRun>()
             .checked_add(size_of::<LogicalRun>())?
             .checked_add(size_of::<GlyphRun>())?
             .checked_mul(self.runs)?;
-        let glyph_bytes = size_of::<ShapedGlyph>()
-            .checked_add(size_of::<PositionedGlyph>())?
-            .checked_mul(self.glyphs)?;
+        let glyph_bytes = size_of::<ShapedGlyph>().checked_mul(self.glyphs)?;
         run_bytes
             .checked_add(glyph_bytes)?
-            .checked_add(size_of::<VisualRun>().checked_mul(self.visual_runs)?)?
             .checked_add(size_of::<ShapedGlyph>().checked_mul(self.scratch_glyphs)?)?
-            .checked_add(
-                size_of::<BrokenLine>()
-                    .checked_add(size_of::<LayoutLine>())?
-                    .checked_mul(self.lines)?,
-            )?
-            .checked_add(size_of::<CaretStop>().checked_mul(self.carets)?)
+            .checked_add(size_of::<BrokenLine>().checked_mul(self.lines)?)
     }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Failure to admit, allocate, or lay out a paragraph with a workspace.
 pub enum WorkspaceError {
     Allocation,
     TextLimit { required: usize, limit: usize },
+    RunLimit { required: usize, limit: usize },
+    GlyphLimit { required: usize, limit: usize },
+    ScratchLimit { required: usize, limit: usize },
+    LineLimit { required: usize, limit: usize },
     DimensionOverflow,
     Bidi(BidiError),
     Layout(LayoutError),
@@ -62,6 +61,49 @@ impl From<LayoutError> for WorkspaceError {
     }
 }
 
+/// Caller-owned storage for final paragraph products.
+pub struct LayoutOutput<'a> {
+    glyphs: &'a mut [PositionedGlyph],
+    runs: &'a mut [VisualRun],
+    lines: &'a mut [LayoutLine],
+    carets: &'a mut [CaretStop],
+}
+
+impl<'a> LayoutOutput<'a> {
+    /// Combines final glyph, run, line, and caret slices into one output target.
+    pub fn new(
+        glyphs: &'a mut [PositionedGlyph],
+        runs: &'a mut [VisualRun],
+        lines: &'a mut [LayoutLine],
+        carets: &'a mut [CaretStop],
+    ) -> Self {
+        Self {
+            glyphs,
+            runs,
+            lines,
+            carets,
+        }
+    }
+
+    pub(crate) fn layout(&self, result: LayoutResult) -> ParagraphLayout<'_> {
+        ParagraphLayout::from_parts(
+            &self.lines[..result.lines],
+            &self.runs[..result.runs],
+            &self.glyphs[..result.glyphs],
+            &self.carets[..result.carets],
+        )
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct LayoutResult {
+    lines: usize,
+    runs: usize,
+    glyphs: usize,
+    carets: usize,
+}
+
+/// Reusable heap storage for private paragraph-layout intermediates.
 pub struct TextWorkspace {
     limits: LayoutLimits,
     bidi: Vec<BidiRun>,
@@ -70,44 +112,64 @@ pub struct TextWorkspace {
     initial_runs: Vec<GlyphRun>,
     broken: Vec<BrokenLine>,
     scratch: Vec<ShapedGlyph>,
-    glyphs: Vec<PositionedGlyph>,
-    runs: Vec<VisualRun>,
-    lines: Vec<LayoutLine>,
-    carets: Vec<CaretStop>,
 }
 
 impl TextWorkspace {
-    pub fn try_new(limits: LayoutLimits) -> Result<Self, WorkspaceError> {
-        Ok(Self {
+    /// Creates an empty workspace that grows within `limits` on demand.
+    pub const fn new(limits: LayoutLimits) -> Self {
+        Self {
             limits,
-            bidi: slots(limits.runs, BidiRun::empty())?,
-            logical: slots(limits.runs, LogicalRun::empty())?,
-            initial_glyphs: slots(limits.glyphs, ShapedGlyph::default())?,
-            initial_runs: slots(limits.runs, GlyphRun::empty())?,
-            broken: slots(limits.lines, BrokenLine::empty())?,
-            scratch: slots(limits.scratch_glyphs, ShapedGlyph::default())?,
-            glyphs: slots(limits.glyphs, PositionedGlyph::default())?,
-            runs: slots(limits.visual_runs, VisualRun::empty())?,
-            lines: slots(limits.lines, LayoutLine::empty())?,
-            carets: slots(limits.carets, CaretStop::default())?,
-        })
+            bidi: Vec::new(),
+            logical: Vec::new(),
+            initial_glyphs: Vec::new(),
+            initial_runs: Vec::new(),
+            broken: Vec::new(),
+            scratch: Vec::new(),
+        }
     }
 
     pub const fn limits(&self) -> LayoutLimits {
         self.limits
     }
 
-    pub(crate) fn layout<'workspace>(
-        &'workspace mut self,
+    pub(crate) fn layout_into(
+        &mut self,
         flow: &TextFlow<'_>,
         typefaces: &[&dyn Typeface],
-    ) -> Result<ParagraphLayout<'workspace>, WorkspaceError> {
+        output: &mut LayoutOutput<'_>,
+    ) -> Result<LayoutResult, WorkspaceError> {
         if flow.text.len() > self.limits.text_bytes {
             return Err(WorkspaceError::TextLimit {
                 required: flow.text.len(),
                 limit: self.limits.text_bytes,
             });
         }
+        self.prepare(flow.text)?;
+        loop {
+            match self.try_layout(flow, typefaces, output) {
+                Ok(result) => return Ok(result),
+                Err(AttemptError::Grow(kind, required)) => self.grow(kind, required)?,
+                Err(AttemptError::Public(error)) => return Err(error),
+            }
+        }
+    }
+
+    /// Returns allocated element capacity for private pipeline buffers.
+    pub fn resident_bytes(&self) -> usize {
+        vec_bytes(&self.bidi)
+            .saturating_add(vec_bytes(&self.logical))
+            .saturating_add(vec_bytes(&self.initial_glyphs))
+            .saturating_add(vec_bytes(&self.initial_runs))
+            .saturating_add(vec_bytes(&self.broken))
+            .saturating_add(vec_bytes(&self.scratch))
+    }
+
+    fn try_layout(
+        &mut self,
+        flow: &TextFlow<'_>,
+        typefaces: &[&dyn Typeface],
+        output: &mut LayoutOutput<'_>,
+    ) -> Result<LayoutResult, AttemptError> {
         let max_width =
             i32::try_from(flow.max_width).map_err(|_| WorkspaceError::DimensionOverflow)?;
         let line_height =
@@ -122,58 +184,184 @@ impl TextWorkspace {
             0..flow.text.len(),
             flow.base_direction,
             &mut self.bidi,
-        )?;
-        let logical = LogicalRuns::resolve(flow.text, &bidi, typefaces, &mut self.logical)?;
-        let shaped = logical.shape_into(
-            flow.text,
-            typefaces,
-            flow.features,
-            &mut self.initial_glyphs,
-            &mut self.initial_runs,
-        )?;
+        )
+        .map_err(|error| match error {
+            BidiError::InsufficientCapacity { required } => {
+                AttemptError::Grow(BufferKind::Runs, required)
+            }
+            error => AttemptError::Public(WorkspaceError::Bidi(error)),
+        })?;
+        let logical = LogicalRuns::resolve(flow.text, &bidi, typefaces, &mut self.logical)
+            .map_err(map_logical)?;
+        let shaped = logical
+            .shape_into(
+                flow.text,
+                typefaces,
+                flow.features,
+                &mut self.initial_glyphs,
+                &mut self.initial_runs,
+            )
+            .map_err(map_shape)?;
         let spacing = TextSpacing {
             letter: flow.letter_spacing,
             word: flow.word_spacing,
         };
-        let broken = shaped.break_into_with_provider(
-            flow.text,
-            max_width,
-            flow.wrap,
-            spacing,
-            flow.line_break_provider,
-            &mut self.broken,
-        )?;
-        Ok(logical.layout_into(
-            flow.text,
-            typefaces,
-            flow.features,
-            &broken,
-            LayoutOptions::new(line_advance)
-                .with_origin(flow.origin)
-                .with_spacing(spacing)
-                .with_width(max_width)
-                .with_alignment(flow.alignment)
-                .with_direction(bidi.direction())
-                .with_max_lines(flow.max_lines)
-                .with_overflow(flow.overflow),
-            LayoutBuffers::new(
-                &mut self.scratch,
-                &mut self.glyphs,
-                &mut self.runs,
-                &mut self.lines,
-                &mut self.carets,
-            ),
-        )?)
+        let broken = shaped
+            .break_into_with_provider(
+                flow.text,
+                max_width,
+                flow.wrap,
+                spacing,
+                flow.line_break_provider,
+                &mut self.broken,
+            )
+            .map_err(map_break)?;
+        let layout = logical
+            .layout_into(
+                flow.text,
+                typefaces,
+                flow.features,
+                &broken,
+                LayoutOptions::new(line_advance)
+                    .with_origin(flow.origin)
+                    .with_spacing(spacing)
+                    .with_width(max_width)
+                    .with_alignment(flow.alignment)
+                    .with_direction(bidi.direction())
+                    .with_max_lines(flow.max_lines)
+                    .with_overflow(flow.overflow),
+                LayoutBuffers::new(
+                    &mut self.scratch,
+                    &mut *output.glyphs,
+                    &mut *output.runs,
+                    &mut *output.lines,
+                    &mut *output.carets,
+                ),
+            )
+            .map_err(|error| match error {
+                LayoutError::InsufficientScratchCapacity { minimum } => {
+                    AttemptError::Grow(BufferKind::Scratch, minimum)
+                }
+                error => AttemptError::Public(WorkspaceError::Layout(error)),
+            })?;
+        Ok(LayoutResult {
+            lines: layout.lines().len(),
+            runs: layout.runs().len(),
+            glyphs: layout.glyphs().len(),
+            carets: layout.carets().len(),
+        })
+    }
+
+    fn prepare(&mut self, text: &str) -> Result<(), WorkspaceError> {
+        let glyphs = text.chars().count();
+        let initial = glyphs.min(self.limits.glyphs);
+        self.grow(BufferKind::Glyphs, initial)
+    }
+
+    fn grow(&mut self, kind: BufferKind, required: usize) -> Result<(), WorkspaceError> {
+        let limit = match kind {
+            BufferKind::Runs => self.limits.runs,
+            BufferKind::Glyphs => self.limits.glyphs,
+            BufferKind::Scratch => self.limits.scratch_glyphs,
+            BufferKind::Lines => self.limits.lines,
+        };
+        if required > limit {
+            return Err(kind.limit_error(required, limit));
+        }
+        match kind {
+            BufferKind::Runs => {
+                resize_slots(&mut self.bidi, required, BidiRun::empty())?;
+                resize_slots(&mut self.logical, required, LogicalRun::empty())?;
+                resize_slots(&mut self.initial_runs, required, GlyphRun::empty())
+            }
+            BufferKind::Glyphs => {
+                resize_slots(&mut self.initial_glyphs, required, ShapedGlyph::default())
+            }
+            BufferKind::Scratch => {
+                resize_slots(&mut self.scratch, required, ShapedGlyph::default())
+            }
+            BufferKind::Lines => resize_slots(&mut self.broken, required, BrokenLine::empty()),
+        }
     }
 }
 
-fn slots<T: Clone>(length: usize, value: T) -> Result<Vec<T>, WorkspaceError> {
-    let mut slots = Vec::new();
+#[derive(Clone, Copy)]
+enum BufferKind {
+    Runs,
+    Glyphs,
+    Scratch,
+    Lines,
+}
+
+impl BufferKind {
+    const fn limit_error(self, required: usize, limit: usize) -> WorkspaceError {
+        match self {
+            Self::Runs => WorkspaceError::RunLimit { required, limit },
+            Self::Glyphs => WorkspaceError::GlyphLimit { required, limit },
+            Self::Scratch => WorkspaceError::ScratchLimit { required, limit },
+            Self::Lines => WorkspaceError::LineLimit { required, limit },
+        }
+    }
+}
+
+enum AttemptError {
+    Grow(BufferKind, usize),
+    Public(WorkspaceError),
+}
+
+impl From<WorkspaceError> for AttemptError {
+    fn from(error: WorkspaceError) -> Self {
+        Self::Public(error)
+    }
+}
+
+fn map_logical(error: LayoutError) -> AttemptError {
+    match error {
+        LayoutError::InsufficientRunCapacity { required } => {
+            AttemptError::Grow(BufferKind::Runs, required)
+        }
+        error => AttemptError::Public(WorkspaceError::Layout(error)),
+    }
+}
+
+fn map_shape(error: LayoutError) -> AttemptError {
+    match error {
+        LayoutError::InsufficientRunCapacity { required } => {
+            AttemptError::Grow(BufferKind::Runs, required)
+        }
+        LayoutError::InsufficientGlyphCapacity { minimum } => {
+            AttemptError::Grow(BufferKind::Glyphs, minimum)
+        }
+        error => AttemptError::Public(WorkspaceError::Layout(error)),
+    }
+}
+
+fn map_break(error: LayoutError) -> AttemptError {
+    match error {
+        LayoutError::InsufficientLineCapacity { required } => {
+            AttemptError::Grow(BufferKind::Lines, required)
+        }
+        error => AttemptError::Public(WorkspaceError::Layout(error)),
+    }
+}
+
+fn resize_slots<T: Clone>(
+    slots: &mut Vec<T>,
+    length: usize,
+    value: T,
+) -> Result<(), WorkspaceError> {
+    if length <= slots.len() {
+        return Ok(());
+    }
     slots
-        .try_reserve_exact(length)
+        .try_reserve_exact(length - slots.len())
         .map_err(|_| WorkspaceError::Allocation)?;
     slots.resize(length, value);
-    Ok(slots)
+    Ok(())
+}
+
+fn vec_bytes<T>(values: &Vec<T>) -> usize {
+    values.capacity().saturating_mul(size_of::<T>())
 }
 
 #[cfg(test)]
@@ -207,46 +395,166 @@ mod tests {
         LayoutLimits {
             text_bytes: 16,
             runs: 4,
-            visual_runs: 4,
             glyphs: 8,
             scratch_glyphs: 4,
             lines: 4,
-            carets: 12,
+        }
+    }
+
+    struct OutputStorage {
+        glyphs: [PositionedGlyph; 8],
+        runs: [VisualRun; 4],
+        lines: [LayoutLine; 4],
+        carets: [CaretStop; 12],
+    }
+
+    impl OutputStorage {
+        fn new() -> Self {
+            Self {
+                glyphs: [PositionedGlyph::default(); 8],
+                runs: [VisualRun::empty(); 4],
+                lines: [LayoutLine::empty(); 4],
+                carets: [CaretStop::default(); 12],
+            }
+        }
+
+        fn with_layout<R>(
+            &mut self,
+            flow: &TextFlow<'_>,
+            typefaces: &[&dyn Typeface],
+            workspace: &mut TextWorkspace,
+            inspect: impl FnOnce(ParagraphLayout<'_>) -> R,
+        ) -> Result<R, WorkspaceError> {
+            let mut output = LayoutOutput::new(
+                &mut self.glyphs,
+                &mut self.runs,
+                &mut self.lines,
+                &mut self.carets,
+            );
+            let layout = flow.layout_into(typefaces, workspace, &mut output)?;
+            Ok(inspect(layout))
+        }
+
+        fn error(
+            &mut self,
+            flow: &TextFlow<'_>,
+            typefaces: &[&dyn Typeface],
+            workspace: &mut TextWorkspace,
+        ) -> WorkspaceError {
+            let mut output = LayoutOutput::new(
+                &mut self.glyphs,
+                &mut self.runs,
+                &mut self.lines,
+                &mut self.carets,
+            );
+            match flow.layout_into(typefaces, workspace, &mut output) {
+                Ok(_) => panic!("layout unexpectedly succeeded"),
+                Err(error) => error,
+            }
         }
     }
 
     #[test]
-    fn reuses_fixed_capacity_for_layout() {
+    fn grows_private_buffers_lazily_and_reuses_them() {
         let limits = limits();
-        assert!(limits.buffer_bytes().is_some_and(|bytes| bytes > 0));
-        let mut workspace = TextWorkspace::try_new(limits).unwrap();
+        let maximum = limits.buffer_bytes().unwrap();
+        let mut workspace = TextWorkspace::new(limits);
+        assert_eq!(workspace.resident_bytes(), 0);
         let source = Source;
         let typeface = SimpleTypeface::new(&source);
         let typefaces: [&dyn Typeface; 1] = [&typeface];
+        let short = TextFlow::new("a", 3).with_line_height(10);
+        let mut output = OutputStorage::new();
+        output
+            .with_layout(&short, &typefaces, &mut workspace, |_| {})
+            .unwrap();
+        let short_resident = workspace.resident_bytes();
+        assert!(short_resident > 0 && short_resident < maximum);
+
         let flow = TextFlow::new("ab cd", 3)
             .with_line_height(10)
             .with_line_spacing(2);
-        let layout = flow.layout(&typefaces, &mut workspace).unwrap();
+        output
+            .with_layout(&flow, &typefaces, &mut workspace, |layout| {
+                assert_eq!(layout.lines().len(), 2);
+                assert_eq!(layout.glyphs().len(), 5);
+                assert_eq!(layout.lines()[1].origin().y, 12);
+            })
+            .unwrap();
+        let resident = workspace.resident_bytes();
+        assert!(resident > short_resident);
+        output
+            .with_layout(&flow, &typefaces, &mut workspace, |_| {})
+            .unwrap();
+        assert_eq!(workspace.resident_bytes(), resident);
+    }
 
-        assert_eq!(layout.lines().len(), 2);
-        assert_eq!(layout.glyphs().len(), 5);
-        assert_eq!(layout.lines()[1].origin().y, 12);
+    #[test]
+    fn empty_paragraph_needs_no_workspace_or_output_storage() {
+        let mut workspace = TextWorkspace::new(LayoutLimits {
+            text_bytes: 0,
+            runs: 0,
+            glyphs: 0,
+            scratch_glyphs: 0,
+            lines: 0,
+        });
+        let source = Source;
+        let typeface = SimpleTypeface::new(&source);
+        let typefaces: [&dyn Typeface; 1] = [&typeface];
+        let mut glyphs = [];
+        let mut runs = [];
+        let mut lines = [];
+        let mut carets = [];
+        let mut output = LayoutOutput::new(&mut glyphs, &mut runs, &mut lines, &mut carets);
+
+        let layout = TextFlow::new("", 0)
+            .layout_into(&typefaces, &mut workspace, &mut output)
+            .unwrap();
+
+        assert!(layout.glyphs().is_empty());
+        assert!(layout.runs().is_empty());
+        assert!(layout.lines().is_empty());
+        assert!(layout.carets().is_empty());
+        assert_eq!(workspace.resident_bytes(), 0);
+    }
+
+    #[test]
+    fn reports_caller_output_capacity_without_owning_a_second_copy() {
+        let mut workspace = TextWorkspace::new(limits());
+        let source = Source;
+        let typeface = SimpleTypeface::new(&source);
+        let typefaces: [&dyn Typeface; 1] = [&typeface];
+        let flow = TextFlow::new("ab", 3).with_line_height(10);
+        let mut glyphs = [PositionedGlyph::default(); 1];
+        let mut runs = [VisualRun::empty(); 2];
+        let mut lines = [LayoutLine::empty(); 1];
+        let mut carets = [CaretStop::default(); 3];
+        let mut output = LayoutOutput::new(&mut glyphs, &mut runs, &mut lines, &mut carets);
+
+        let error = match flow.layout_into(&typefaces, &mut workspace, &mut output) {
+            Ok(_) => panic!("layout unexpectedly succeeded"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            error,
+            WorkspaceError::Layout(LayoutError::InsufficientPositionedCapacity { minimum: 2 })
+        );
     }
 
     #[test]
     fn rejects_text_before_using_workspace_capacity() {
-        let mut workspace = TextWorkspace::try_new(LayoutLimits {
+        let mut workspace = TextWorkspace::new(LayoutLimits {
             text_bytes: 2,
             ..limits()
-        })
-        .unwrap();
+        });
         let source = Source;
         let typeface = SimpleTypeface::new(&source);
         let typefaces: [&dyn Typeface; 1] = [&typeface];
         let flow = TextFlow::new("abc", 3).with_line_height(10);
 
+        let mut output = OutputStorage::new();
         assert_eq!(
-            flow.layout(&typefaces, &mut workspace).err().unwrap(),
+            output.error(&flow, &typefaces, &mut workspace),
             WorkspaceError::TextLimit {
                 required: 3,
                 limit: 2,
@@ -256,21 +564,22 @@ mod tests {
 
     #[test]
     fn rejects_dimensions_outside_layout_coordinates() {
-        let mut workspace = TextWorkspace::try_new(limits()).unwrap();
+        let mut workspace = TextWorkspace::new(limits());
         let source = Source;
         let typeface = SimpleTypeface::new(&source);
         let typefaces: [&dyn Typeface; 1] = [&typeface];
         let flow = TextFlow::new("a", usize::MAX).with_line_height(10);
 
+        let mut output = OutputStorage::new();
         assert_eq!(
-            flow.layout(&typefaces, &mut workspace).err().unwrap(),
+            output.error(&flow, &typefaces, &mut workspace),
             WorkspaceError::DimensionOverflow
         );
     }
 
     #[test]
     fn ellipsis_is_shaped_and_excluded_from_caret_navigation() {
-        let mut workspace = TextWorkspace::try_new(limits()).unwrap();
+        let mut workspace = TextWorkspace::new(limits());
         let source = Source;
         let typeface = SimpleTypeface::new(&source);
         let typefaces: [&dyn Typeface; 1] = [&typeface];
@@ -278,34 +587,36 @@ mod tests {
             .with_line_height(10)
             .with_max_lines(1)
             .with_overflow(crate::layout::Overflow::Ellipsis);
-        let layout = flow.layout(&typefaces, &mut workspace).unwrap();
-
-        assert_eq!(layout.lines().len(), 1);
-        assert_eq!(
-            layout.lines()[0].text(),
-            crate::shaping::TextRange::new(0, 2)
-        );
-        assert_eq!(layout.glyphs().len(), 3);
-        assert_eq!(
-            layout.glyphs()[2].glyph_id(),
-            GlyphId::new('\u{2026}' as u16)
-        );
-        assert!(layout.runs()[1].is_synthetic());
-        assert_eq!(
-            layout.runs()[1].text(),
-            crate::shaping::TextRange::new(2, 2)
-        );
-        assert_eq!(layout.carets().len(), 3);
-        assert_eq!(layout.carets().last().unwrap().text_offset, 2);
+        let mut output = OutputStorage::new();
+        output
+            .with_layout(&flow, &typefaces, &mut workspace, |layout| {
+                assert_eq!(layout.lines().len(), 1);
+                assert_eq!(
+                    layout.lines()[0].text(),
+                    crate::shaping::TextRange::new(0, 2)
+                );
+                assert_eq!(layout.glyphs().len(), 3);
+                assert_eq!(
+                    layout.glyphs()[2].glyph_id(),
+                    GlyphId::new('\u{2026}' as u16)
+                );
+                assert!(layout.runs()[1].is_synthetic());
+                assert_eq!(
+                    layout.runs()[1].text(),
+                    crate::shaping::TextRange::new(2, 2)
+                );
+                assert_eq!(layout.carets().len(), 3);
+                assert_eq!(layout.carets().last().unwrap().text_offset, 2);
+            })
+            .unwrap();
     }
 
     #[test]
     fn no_wrap_ellipsis_replaces_horizontal_overflow() {
-        let mut workspace = TextWorkspace::try_new(LayoutLimits {
+        let mut workspace = TextWorkspace::new(LayoutLimits {
             scratch_glyphs: 5,
             ..limits()
-        })
-        .unwrap();
+        });
         let source = Source;
         let typeface = SimpleTypeface::new(&source);
         let typefaces: [&dyn Typeface; 1] = [&typeface];
@@ -313,24 +624,27 @@ mod tests {
             .with_line_height(10)
             .with_wrap(crate::layout::WrapMode::NoWrap)
             .with_overflow(crate::layout::Overflow::Ellipsis);
-        let layout = flow.layout(&typefaces, &mut workspace).unwrap();
-
-        assert_eq!(layout.lines().len(), 1);
-        assert_eq!(
-            layout.lines()[0].text(),
-            crate::shaping::TextRange::new(0, 2)
-        );
-        assert_eq!(layout.lines()[0].advance(), 3);
-        assert_eq!(layout.glyphs().len(), 3);
-        assert_eq!(
-            layout.glyphs()[2].glyph_id(),
-            GlyphId::new('\u{2026}' as u16)
-        );
+        let mut output = OutputStorage::new();
+        output
+            .with_layout(&flow, &typefaces, &mut workspace, |layout| {
+                assert_eq!(layout.lines().len(), 1);
+                assert_eq!(
+                    layout.lines()[0].text(),
+                    crate::shaping::TextRange::new(0, 2)
+                );
+                assert_eq!(layout.lines()[0].advance(), 3);
+                assert_eq!(layout.glyphs().len(), 3);
+                assert_eq!(
+                    layout.glyphs()[2].glyph_id(),
+                    GlyphId::new('\u{2026}' as u16)
+                );
+            })
+            .unwrap();
     }
 
     #[test]
     fn rtl_ellipsis_occupies_the_visual_start() {
-        let mut workspace = TextWorkspace::try_new(limits()).unwrap();
+        let mut workspace = TextWorkspace::new(limits());
         let source = Source;
         let typeface = SimpleTypeface::new(&source);
         let typefaces: [&dyn Typeface; 1] = [&typeface];
@@ -339,14 +653,17 @@ mod tests {
             .with_direction(crate::bidi::BaseDirection::RightToLeft)
             .with_max_lines(1)
             .with_overflow(crate::layout::Overflow::Ellipsis);
-        let layout = flow.layout(&typefaces, &mut workspace).unwrap();
-
-        assert!(layout.runs()[0].is_synthetic());
-        assert_eq!(
-            layout.glyphs()[0].glyph_id(),
-            GlyphId::new('\u{2026}' as u16)
-        );
-        assert_eq!(layout.glyphs()[0].origin.x, 0);
-        assert_eq!(layout.glyphs()[1].origin.x, 1);
+        let mut output = OutputStorage::new();
+        output
+            .with_layout(&flow, &typefaces, &mut workspace, |layout| {
+                assert!(layout.runs()[0].is_synthetic());
+                assert_eq!(
+                    layout.glyphs()[0].glyph_id(),
+                    GlyphId::new('\u{2026}' as u16)
+                );
+                assert_eq!(layout.glyphs()[0].origin.x, 0);
+                assert_eq!(layout.glyphs()[1].origin.x, 1);
+            })
+            .unwrap();
     }
 }

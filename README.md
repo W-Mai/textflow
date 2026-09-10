@@ -25,7 +25,7 @@
 
 ---
 
-`TextFlow` provides line breaking, bidirectional text, glyph shaping, font fallback, visual runs, and caret positioning. Caller-owned buffers make memory use explicit, while the optional `alloc` feature provides a reusable fixed-capacity workspace over the same algorithms.
+`TextFlow` provides line breaking, bidirectional text, glyph shaping, font fallback, visual runs, and caret positioning. Caller-owned buffers make memory use explicit, while the optional `alloc` feature provides a bounded workspace that grows private pipeline storage on demand and reuses it.
 
 <p align="center">
   <img src="assets/textflow-architecture.svg" alt="TextFlow architecture: UTF-8 input passes through Unicode analysis, bidirectional resolution, typeface shaping, and line layout into positioned glyphs" width="1200">
@@ -54,7 +54,7 @@ assert_eq!(lines, ["A small UI", "can still", "set type", "well."]);
 - Caller-owned buffers with explicit capacity and unsupported-text errors.
 - Format-neutral `Typeface` and `GlyphSource` interfaces for TTF, OpenType, MIRX, flash-backed assets, and application-specific font stores.
 - Stable glyph IDs, UTF-8 cluster ranges, visual bidi runs, safe line boundaries, and caret positions.
-- Optional reusable heap workspace with admission limits and no growth during layout.
+- Optional reusable heap workspace with runtime limits, lazy growth, and direct caller-owned output.
 
 ## Embedded footprint
 
@@ -81,7 +81,7 @@ The demo's main stack frame is 2,272 B, including a 2,016 B `LayoutScratch`. Hea
 | `script-arabic` | Arabic joining forms, ligatures, cursive attachment, and mark positioning |
 | `script-thai` | Thai cluster substitution and mark positioning |
 | `script-devanagari` | Devanagari conjunct forms, pre-base matra reordering, and mark positioning |
-| `alloc` | Reusable owning workspace for the shaping pipeline |
+| `alloc` | Reusable bounded workspace for private shaping intermediates |
 
 Default features are empty. The current Unicode and shaping implementation intentionally supports a defined subset and returns capability errors for unsupported scripts, controls, clusters, and font features.
 

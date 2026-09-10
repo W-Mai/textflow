@@ -482,7 +482,10 @@ mod tests {
         }
     }
 
+    #[cfg(any(feature = "script-arabic", feature = "script-thai"))]
     struct Data;
+
+    #[cfg(any(feature = "script-arabic", feature = "script-thai"))]
     impl ShapingData for Data {
         fn substitute(
             &self,

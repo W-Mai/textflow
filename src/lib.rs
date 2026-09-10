@@ -41,7 +41,7 @@ use crate::shaping::{FlowPoint, FontFeature};
 #[cfg(feature = "shaping")]
 use crate::unicode::LineBreakProvider;
 #[cfg(all(feature = "alloc", feature = "shaping"))]
-use crate::workspace::{TextWorkspace, WorkspaceError};
+use crate::workspace::{LayoutOutput, TextWorkspace, WorkspaceError};
 
 #[cfg(feature = "bidi")]
 mod buffer;
@@ -68,7 +68,9 @@ pub mod unicode;
 pub mod workspace;
 
 pub struct TextFlow<'a> {
+    #[cfg(feature = "shaping")]
     text: &'a str,
+    #[cfg(feature = "shaping")]
     max_width: usize,
     line_height: usize,
     line_spacing: usize,
@@ -98,7 +100,9 @@ pub struct TextFlow<'a> {
 impl<'a> TextFlow<'a> {
     pub fn new(text: &'a str, max_width: usize) -> Self {
         TextFlow {
+            #[cfg(feature = "shaping")]
             text,
+            #[cfg(feature = "shaping")]
             max_width,
             line_height: 0,
             line_spacing: 0,
@@ -198,7 +202,8 @@ impl<'a> TextFlow<'a> {
     }
 
     #[cfg(feature = "shaping")]
-    pub fn layout_into<
+    /// Lays out a paragraph with fixed-capacity stack or static scratch storage.
+    pub fn layout_with_scratch<
         'scratch,
         const RUNS: usize,
         const GLYPHS: usize,
@@ -213,12 +218,15 @@ impl<'a> TextFlow<'a> {
     }
 
     #[cfg(all(feature = "alloc", feature = "shaping"))]
-    pub fn layout<'workspace>(
+    /// Lays out a paragraph into caller-owned output using reusable private storage.
+    pub fn layout_into<'output>(
         &self,
         typefaces: &[&dyn Typeface],
-        workspace: &'workspace mut TextWorkspace,
-    ) -> Result<layout::ParagraphLayout<'workspace>, WorkspaceError> {
-        workspace.layout(self, typefaces)
+        workspace: &mut TextWorkspace,
+        output: &'output mut LayoutOutput<'_>,
+    ) -> Result<ParagraphLayout<'output>, WorkspaceError> {
+        let result = workspace.layout_into(self, typefaces, output)?;
+        Ok(output.layout(result))
     }
 }
 

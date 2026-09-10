@@ -46,7 +46,7 @@ fn layout_once() -> (usize, usize, usize, usize) {
         .with_line_height(18)
         .with_direction(BaseDirection::Auto)
         .with_wrap(WrapMode::Word)
-        .layout_into(&faces, &mut scratch)
+        .layout_with_scratch(&faces, &mut scratch)
         .unwrap();
 
     (

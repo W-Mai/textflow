@@ -1477,7 +1477,7 @@ pub enum Overflow {
 /// `RUNS` bounds bidi, script, fallback, and visual runs. `GLYPHS` bounds both
 /// intermediate and positioned glyphs. `LINES` bounds wrapped lines, and
 /// `CARETS` bounds emitted caret stops. The storage is reusable and performs
-/// no allocation during [`crate::TextFlow::layout_into`].
+/// no allocation during [`crate::TextFlow::layout_with_scratch`].
 pub struct LayoutScratch<
     const RUNS: usize,
     const GLYPHS: usize,
@@ -1721,7 +1721,22 @@ pub struct ParagraphLayout<'a> {
     carets: &'a [CaretStop],
 }
 
-impl ParagraphLayout<'_> {
+impl<'a> ParagraphLayout<'a> {
+    #[cfg(feature = "alloc")]
+    pub(crate) const fn from_parts(
+        lines: &'a [LayoutLine],
+        runs: &'a [VisualRun],
+        glyphs: &'a [PositionedGlyph],
+        carets: &'a [CaretStop],
+    ) -> Self {
+        Self {
+            lines,
+            runs,
+            glyphs,
+            carets,
+        }
+    }
+
     pub const fn lines(&self) -> &[LayoutLine] {
         self.lines
     }
@@ -1860,7 +1875,7 @@ mod tests {
 
         let layout = crate::TextFlow::new("abc", 10)
             .with_line_height(12)
-            .layout_into(&typefaces, &mut scratch)
+            .layout_with_scratch(&typefaces, &mut scratch)
             .unwrap();
 
         assert_eq!(layout.lines().len(), 1);

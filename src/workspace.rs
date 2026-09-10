@@ -1,7 +1,7 @@
 use crate::bidi::{BidiError, BidiRun, BidiText};
 use crate::layout::{
-    BrokenLine, GlyphRun, LayoutBuffers, LayoutError, LayoutLine, LayoutOptions, LogicalRun,
-    LogicalRuns, ParagraphLayout, TextSpacing, VisualRun,
+    BrokenLine, GlyphRun, LayoutBuffers, LayoutError, LayoutLine, LogicalRun, LogicalRuns,
+    ParagraphLayout, TextSpacing, VisualRun,
 };
 use crate::shaping::{CaretStop, PositionedGlyph, ShapedGlyph, Typeface};
 use crate::TextFlow;
@@ -187,7 +187,11 @@ impl TextWorkspace {
     ) -> Result<LayoutResult, AttemptError> {
         let max_width =
             i32::try_from(flow.max_width).map_err(|_| WorkspaceError::DimensionOverflow)?;
-        let width = i32::try_from(flow.width).map_err(|_| WorkspaceError::DimensionOverflow)?;
+        let width = flow
+            .width
+            .map(i32::try_from)
+            .transpose()
+            .map_err(|_| WorkspaceError::DimensionOverflow)?;
         let line_height =
             i32::try_from(flow.line_height).map_err(|_| WorkspaceError::DimensionOverflow)?;
         let line_spacing =
@@ -232,20 +236,14 @@ impl TextWorkspace {
                 &mut self.broken,
             )
             .map_err(map_break)?;
+        let options = flow.layout_options(line_advance, bidi.direction(), width);
         let layout = logical
             .layout_into(
                 flow.text,
                 typefaces,
                 flow.features,
                 &broken,
-                LayoutOptions::new(line_advance)
-                    .with_origin(flow.origin)
-                    .with_spacing(spacing)
-                    .with_width(width)
-                    .with_alignment(flow.alignment)
-                    .with_direction(bidi.direction())
-                    .with_max_lines(flow.max_lines)
-                    .with_overflow(flow.overflow),
+                options,
                 LayoutBuffers::new(
                     &mut self.scratch,
                     &mut *output.glyphs,
@@ -603,6 +601,28 @@ mod tests {
                 assert_eq!(layout.lines().len(), 2);
                 assert_eq!(layout.lines()[0].origin().x, 3);
                 assert_eq!(layout.lines()[1].origin().x, 4);
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn unbounded_layout_does_not_align_or_ellipsize() {
+        let mut workspace = TextWorkspace::new(limits());
+        let source = Source;
+        let typeface = SimpleTypeface::new(&source);
+        let typefaces: [&dyn Typeface; 1] = [&typeface];
+        let flow = TextFlow::new("ab", 1)
+            .without_width()
+            .with_line_height(10)
+            .with_wrap(crate::layout::WrapMode::NoWrap)
+            .with_alignment(crate::layout::Alignment::Center)
+            .with_overflow(crate::layout::Overflow::Ellipsis);
+        let mut output = OutputStorage::new();
+
+        output
+            .with_layout(&flow, &typefaces, &mut workspace, |layout| {
+                assert_eq!(layout.lines()[0].origin().x, 0);
+                assert_eq!(layout.glyphs().len(), 2);
             })
             .unwrap();
     }

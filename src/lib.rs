@@ -33,7 +33,9 @@ pub use crate::layout::{
 pub use crate::line::Line;
 
 #[cfg(feature = "shaping")]
-use crate::bidi::BaseDirection;
+use crate::bidi::{BaseDirection, Direction};
+#[cfg(feature = "shaping")]
+use crate::layout::LayoutOptions;
 #[cfg(all(feature = "alloc", feature = "shaping"))]
 use crate::shaping::Typeface;
 #[cfg(feature = "shaping")]
@@ -73,7 +75,7 @@ pub struct TextFlow<'a> {
     #[cfg(feature = "shaping")]
     max_width: usize,
     #[cfg(feature = "shaping")]
-    width: usize,
+    width: Option<usize>,
     line_height: usize,
     line_spacing: usize,
     lines: Lines<'a>,
@@ -107,7 +109,7 @@ impl<'a> TextFlow<'a> {
             #[cfg(feature = "shaping")]
             max_width,
             #[cfg(feature = "shaping")]
-            width: max_width,
+            width: Some(max_width),
             line_height: 0,
             line_spacing: 0,
             lines: Lines::new(text, max_width, 4),
@@ -147,7 +149,14 @@ impl<'a> TextFlow<'a> {
     #[cfg(feature = "shaping")]
     /// Sets the width used for alignment and overflow without changing line breaks.
     pub const fn with_width(mut self, width: usize) -> Self {
-        self.width = width;
+        self.width = Some(width);
+        self
+    }
+
+    #[cfg(feature = "shaping")]
+    /// Removes the width used for alignment and overflow without changing line breaks.
+    pub const fn without_width(mut self) -> Self {
+        self.width = None;
         self
     }
 
@@ -238,6 +247,29 @@ impl<'a> TextFlow<'a> {
     ) -> Result<ParagraphLayout<'output>, WorkspaceError> {
         let result = workspace.layout_into(self, typefaces, output)?;
         Ok(output.layout(result))
+    }
+
+    #[cfg(feature = "shaping")]
+    fn layout_options(
+        &self,
+        line_advance: i32,
+        direction: Direction,
+        width: Option<i32>,
+    ) -> LayoutOptions {
+        let options = LayoutOptions::new(line_advance)
+            .with_origin(self.origin)
+            .with_spacing(layout::TextSpacing {
+                letter: self.letter_spacing,
+                word: self.word_spacing,
+            })
+            .with_alignment(self.alignment)
+            .with_direction(direction)
+            .with_max_lines(self.max_lines)
+            .with_overflow(self.overflow);
+        match width {
+            Some(width) => options.with_width(width),
+            None => options,
+        }
     }
 }
 

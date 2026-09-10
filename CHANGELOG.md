@@ -7,7 +7,7 @@
 - `TextFlow::layout_with_scratch` runs the complete allocation-free paragraph pipeline with one reusable `LayoutScratch` value.
 - Logical-run, initial-shaping, and line-breaking records are internal implementation details.
 - The optional `TextWorkspace` grows only private pipeline buffers within runtime limits and writes final glyphs, runs, lines, and carets directly into caller-owned slices.
-- Breaking width and final alignment width can be configured independently.
+- Final alignment and overflow width can differ from breaking width or remain unbounded.
 - Workspace growth observes an adjustable private-memory byte limit.
 
 ## [0.2.3] - 2026-09-10

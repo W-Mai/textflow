@@ -1530,7 +1530,11 @@ impl<const RUNS: usize, const GLYPHS: usize, const LINES: usize, const CARETS: u
         typefaces: &[&dyn Typeface],
     ) -> Result<ParagraphLayout<'scratch>, LayoutError> {
         let max_width = i32::try_from(flow.max_width).map_err(|_| LayoutError::InvalidWidth)?;
-        let width = i32::try_from(flow.width).map_err(|_| LayoutError::InvalidWidth)?;
+        let width = flow
+            .width
+            .map(i32::try_from)
+            .transpose()
+            .map_err(|_| LayoutError::InvalidWidth)?;
         let line_height =
             i32::try_from(flow.line_height).map_err(|_| LayoutError::InvalidLineHeight)?;
         let line_spacing =
@@ -1565,19 +1569,13 @@ impl<const RUNS: usize, const GLYPHS: usize, const LINES: usize, const CARETS: u
             flow.line_break_provider,
             &mut self.broken,
         )?;
+        let options = flow.layout_options(line_advance, direction, width);
         logical.layout_into(
             flow.text,
             typefaces,
             flow.features,
             &broken,
-            LayoutOptions::new(line_advance)
-                .with_origin(flow.origin)
-                .with_spacing(spacing)
-                .with_width(width)
-                .with_alignment(flow.alignment)
-                .with_direction(direction)
-                .with_max_lines(flow.max_lines)
-                .with_overflow(flow.overflow),
+            options,
             LayoutBuffers::new(
                 &mut self.scratch,
                 &mut self.glyphs,
@@ -1874,12 +1872,17 @@ mod tests {
         let typefaces: [&dyn Typeface; 1] = [&font];
         let mut scratch = LayoutScratch::<2, 4, 2, 8>::new();
 
-        let layout = crate::TextFlow::new("abc", 10)
+        let layout = crate::TextFlow::new("abc", 1)
+            .without_width()
             .with_line_height(12)
+            .with_wrap(WrapMode::NoWrap)
+            .with_alignment(Alignment::Center)
+            .with_overflow(Overflow::Ellipsis)
             .layout_with_scratch(&typefaces, &mut scratch)
             .unwrap();
 
         assert_eq!(layout.lines().len(), 1);
+        assert_eq!(layout.lines()[0].origin().x, 0);
         assert_eq!(layout.runs().len(), 1);
         assert_eq!(layout.glyphs().len(), 3);
         assert_eq!(layout.carets().len(), 4);

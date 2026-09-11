@@ -1721,7 +1721,6 @@ pub struct ParagraphLayout<'a> {
 }
 
 impl<'a> ParagraphLayout<'a> {
-    #[cfg(feature = "alloc")]
     pub(crate) const fn from_parts(
         lines: &'a [LayoutLine],
         runs: &'a [VisualRun],
@@ -1734,6 +1733,25 @@ impl<'a> ParagraphLayout<'a> {
             glyphs,
             carets,
         }
+    }
+
+    /// Borrows cached paragraph products after validating their ranges.
+    pub fn from_slices(
+        lines: &'a [LayoutLine],
+        runs: &'a [VisualRun],
+        glyphs: &'a [PositionedGlyph],
+        carets: &'a [CaretStop],
+    ) -> Result<Self, LayoutError> {
+        let valid_lines = lines.iter().all(|line| {
+            valid_range(line.runs, runs.len())
+                && valid_range(line.glyphs, glyphs.len())
+                && valid_range(line.carets, carets.len())
+        });
+        let valid_runs = runs.iter().all(|run| valid_range(run.glyphs, glyphs.len()));
+        if !valid_lines || !valid_runs {
+            return Err(LayoutError::InvalidRun);
+        }
+        Ok(Self::from_parts(lines, runs, glyphs, carets))
     }
 
     pub const fn lines(&self) -> &[LayoutLine] {
@@ -1751,6 +1769,10 @@ impl<'a> ParagraphLayout<'a> {
     pub const fn carets(&self) -> &[CaretStop] {
         self.carets
     }
+}
+
+fn valid_range(range: TextRange, len: usize) -> bool {
+    range.start <= range.end && range.end as usize <= len
 }
 
 fn intersection(left: TextRange, right: TextRange) -> Option<TextRange> {
@@ -1842,6 +1864,23 @@ mod tests {
     struct Source {
         key: u64,
         ascii: bool,
+    }
+
+    #[test]
+    fn borrowed_paragraph_rejects_ranges_outside_cached_slices() {
+        let mut line = LayoutLine::empty();
+        line.glyphs = TextRange::new(0, 1);
+        assert!(matches!(
+            ParagraphLayout::from_slices(&[line], &[], &[], &[]),
+            Err(LayoutError::InvalidRun)
+        ));
+    }
+
+    #[test]
+    fn borrowed_paragraph_accepts_valid_empty_ranges() {
+        let lines = [LayoutLine::empty()];
+        let layout = ParagraphLayout::from_slices(&lines, &[], &[], &[]).unwrap();
+        assert_eq!(layout.lines(), &lines);
     }
 
     impl GlyphSource for Source {

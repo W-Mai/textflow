@@ -6,6 +6,7 @@
 
 - Allocation-free line and borrowed-polyline baseline cursors with forward sampling, normalized fixed-point tangents, and checked coordinate bounds.
 - `ParagraphLayout::place_on` produces caller-owned glyph and optional caret frame sidecars after capacity and geometry preflight.
+- `ParagraphLayout::from_slices` validates and borrows retained layout products without copying them.
 
 ## [0.2.4] - 2026-09-11
 

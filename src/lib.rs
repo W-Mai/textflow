@@ -55,6 +55,8 @@ pub mod bidi;
 #[cfg(feature = "shaping")]
 pub mod layout;
 #[cfg(feature = "shaping")]
+pub mod placement;
+#[cfg(feature = "shaping")]
 pub mod shaping;
 #[cfg(any(
     feature = "script-arabic",

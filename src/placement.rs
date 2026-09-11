@@ -375,6 +375,20 @@ where
         }
     }
 
+    /// Places only caret frames into caller-owned storage.
+    pub fn place_carets_into<'output>(
+        &self,
+        output: &'output mut [CaretFrame],
+    ) -> Result<&'output [CaretFrame], PlacementError> {
+        let required = self.requirements().carets;
+        if output.len() < required {
+            return Err(PlacementError::InsufficientCaretCapacity { required });
+        }
+        self.validate_carets()?;
+        self.write_carets(&mut output[..required])?;
+        Ok(&output[..required])
+    }
+
     fn validate(&self, include_carets: bool) -> Result<(), PlacementError> {
         if self.baselines.len() < self.layout.lines().len() {
             return Err(PlacementError::BaselineCount {
@@ -391,6 +405,21 @@ where
                 let mut cursor = self.baselines[line_index].cursor();
                 validate_carets(line_index, carets, &mut cursor)?;
             }
+        }
+        Ok(())
+    }
+
+    fn validate_carets(&self) -> Result<(), PlacementError> {
+        if self.baselines.len() < self.layout.lines().len() {
+            return Err(PlacementError::BaselineCount {
+                required: self.layout.lines().len(),
+                provided: self.baselines.len(),
+            });
+        }
+        for (line_index, line) in self.layout.lines().iter().copied().enumerate() {
+            let carets = self.line_carets(line)?;
+            let mut cursor = self.baselines[line_index].cursor();
+            validate_carets(line_index, carets, &mut cursor)?;
         }
         Ok(())
     }
@@ -832,6 +861,27 @@ mod tests {
         assert_eq!(placed.glyph_frames()[1].local_origin.x, 512);
         assert_eq!(placed.caret_frames().unwrap()[0].local_origin.x, 256);
         assert_eq!(placed.caret_frames().unwrap()[2].local_origin.x, 768);
+    }
+
+    #[test]
+    fn caret_only_placement_does_not_require_a_glyph_buffer() {
+        let face = SimpleTypeface::new(&Mono);
+        let mut scratch = LayoutScratch::<4, 8, 2, 8>::new();
+        let layout = TextFlow::new("ab", 512)
+            .with_line_height(256)
+            .layout_with_scratch(&[&face], &mut scratch)
+            .unwrap();
+        let baseline =
+            [LineBaseline::new(FlowPoint { x: 10, y: 20 }, FlowPoint { x: 522, y: 20 }).unwrap()];
+        let mut carets = [CaretFrame::default(); 3];
+
+        let placed = layout
+            .place_on(&baseline)
+            .place_carets_into(&mut carets)
+            .unwrap();
+
+        assert_eq!(placed[0].local_origin, FlowPoint { x: 10, y: 20 });
+        assert_eq!(placed[2].local_origin, FlowPoint { x: 522, y: 20 });
     }
 
     #[test]

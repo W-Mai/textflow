@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-09-11
+
 ### Changed
 
 - `TextFlow::layout_with_scratch` runs the complete allocation-free paragraph pipeline with one reusable `LayoutScratch` value.
@@ -47,7 +49,8 @@
 - Optional reusable `alloc` workspace with fixed admission limits.
 - Explicit capacity, font access, and unsupported-text errors.
 
-[Unreleased]: https://github.com/W-Mai/textflow/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/W-Mai/textflow/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/W-Mai/textflow/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/W-Mai/textflow/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/W-Mai/textflow/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/W-Mai/textflow/compare/v0.2.0...v0.2.1

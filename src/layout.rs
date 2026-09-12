@@ -60,6 +60,8 @@ pub enum LayoutError {
 }
 
 /// Supplies the available inline extent for each laid-out line.
+///
+/// Layout never requests a width beyond [`crate::TextFlow::with_max_lines`].
 pub trait LineWidthProvider {
     fn line_count(&self) -> usize;
 
@@ -317,7 +319,7 @@ impl<'output, 'config> ParagraphBuilder<'output, 'config> {
         let line_count = broken.lines.len().min(self.options.max_lines);
         let truncates_lines = self.options.overflow == Overflow::Ellipsis
             && line_count > 0
-            && line_count < broken.lines.len();
+            && (broken.truncated || line_count < broken.lines.len());
         self.preflight(input.logical, broken, line_count, truncates_lines)?;
         for (line_index, broken_line) in broken.lines[..line_count].iter().enumerate() {
             if truncates_lines && line_index + 1 == line_count {
@@ -1195,6 +1197,7 @@ pub(crate) struct BreakConfig<'a> {
     pub(crate) spacing: TextSpacing,
     pub(crate) breaks: Option<&'a dyn LineBreakProvider>,
     pub(crate) widths: Option<&'a dyn LineWidthProvider>,
+    pub(crate) max_lines: usize,
 }
 
 impl<'a> BreakConfig<'a> {
@@ -1206,6 +1209,7 @@ impl<'a> BreakConfig<'a> {
             spacing,
             breaks: None,
             widths: None,
+            max_lines: usize::MAX,
         }
     }
 
@@ -1293,6 +1297,7 @@ enum LineEnd {
 pub(crate) struct BrokenLines<'shaped, 'output> {
     shaped: &'shaped ShapedText<'shaped>,
     lines: &'output [BrokenLine],
+    truncated: bool,
 }
 
 impl BrokenLines<'_, '_> {
@@ -1311,11 +1316,13 @@ struct LineBreaker<'shaped, 'glyphs, 'text, 'output> {
     breaks: Peekable<LineBreaks<'text>>,
     provider: Option<&'text dyn LineBreakProvider>,
     widths: Option<&'text dyn LineWidthProvider>,
+    max_lines: usize,
     line: usize,
     writer: LineWriter<'output>,
     line_start: u32,
     width: i32,
     last_allowed: Option<(u32, i32)>,
+    truncated: bool,
 }
 
 impl<'shaped, 'glyphs, 'text, 'output> LineBreaker<'shaped, 'glyphs, 'text, 'output> {
@@ -1335,16 +1342,26 @@ impl<'shaped, 'glyphs, 'text, 'output> LineBreaker<'shaped, 'glyphs, 'text, 'out
             breaks,
             provider: config.breaks,
             widths: config.widths,
+            max_lines: config.max_lines,
             line: 0,
             writer: LineWriter::new(output),
             line_start: shaped.text.start,
             width: 0,
             last_allowed: None,
+            truncated: false,
         }
     }
 
     fn add_cluster(&mut self, cluster: TextRange, advance: i32) -> Result<(), LayoutError> {
+        if self.line >= self.max_lines {
+            self.truncated = true;
+            return Ok(());
+        }
         self.take_breaks_through(cluster.start)?;
+        if self.line >= self.max_lines {
+            self.truncated = true;
+            return Ok(());
+        }
         let width_before = self.width;
         self.width = self
             .width
@@ -1387,6 +1404,9 @@ impl<'shaped, 'glyphs, 'text, 'output> LineBreaker<'shaped, 'glyphs, 'text, 'out
     }
 
     fn take_provider_break(&mut self, offset: u32) -> Result<(), LayoutError> {
+        if self.line >= self.max_lines {
+            return Ok(());
+        }
         let Some(provider) = self.provider else {
             return Ok(());
         };
@@ -1408,6 +1428,9 @@ impl<'shaped, 'glyphs, 'text, 'output> LineBreaker<'shaped, 'glyphs, 'text, 'out
         {
             let next = self.breaks.next().unwrap();
             let global = self.paragraph.start + next.offset as u32;
+            if self.line >= self.max_lines {
+                continue;
+            }
             if global <= self.line_start || !self.shaped.is_safe_break(global) {
                 continue;
             }
@@ -1461,6 +1484,9 @@ impl<'shaped, 'glyphs, 'text, 'output> LineBreaker<'shaped, 'glyphs, 'text, 'out
     }
 
     fn line_width(&self) -> Result<i32, LayoutError> {
+        if self.line >= self.max_lines {
+            return Ok(i32::MAX);
+        }
         let Some(widths) = self.widths else {
             return Ok(self.max_width);
         };
@@ -1472,13 +1498,16 @@ impl<'shaped, 'glyphs, 'text, 'output> LineBreaker<'shaped, 'glyphs, 'text, 'out
 
     fn finish(mut self) -> Result<BrokenLines<'shaped, 'output>, LayoutError> {
         self.take_breaks_through(self.paragraph.end)?;
-        if self.line_start < self.paragraph.end {
+        if self.line_start < self.paragraph.end && self.line < self.max_lines {
             self.emit(self.paragraph.end, self.width, LineEnd::Paragraph)?;
+        } else if self.line_start < self.paragraph.end {
+            self.truncated = true;
         }
         let lines = self.writer.finish()?;
         Ok(BrokenLines {
             shaped: self.shaped,
             lines,
+            truncated: self.truncated,
         })
     }
 }
@@ -1680,6 +1709,7 @@ impl<const RUNS: usize, const GLYPHS: usize, const LINES: usize, const CARETS: u
                 spacing,
                 breaks: flow.line_break_provider,
                 widths: flow.line_width_provider,
+                max_lines: flow.max_lines,
             },
             &mut self.broken,
         )?;
@@ -2106,6 +2136,36 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn max_lines_needs_no_hidden_line_width_or_storage() {
+        let font = SimpleTypeface::new(&Source {
+            key: 7,
+            ascii: true,
+        });
+        let symbols = SimpleTypeface::new(&Source {
+            key: 8,
+            ascii: false,
+        });
+        let typefaces: [&dyn Typeface; 2] = [&font, &symbols];
+        let widths = [2];
+        let mut scratch = LayoutScratch::<8, 16, 1, 32>::new();
+
+        let layout = crate::TextFlow::new("abc", 99)
+            .with_line_widths(&widths)
+            .with_wrap(WrapMode::Grapheme)
+            .with_max_lines(1)
+            .with_overflow(Overflow::Ellipsis)
+            .layout_with_scratch(&typefaces, &mut scratch)
+            .unwrap();
+
+        assert_eq!(layout.lines().len(), 1);
+        assert_eq!(layout.glyphs().len(), 2);
+        assert_eq!(
+            layout.glyphs()[1].glyph_id(),
+            GlyphId::new('\u{2026}' as u16)
+        );
+    }
+
     struct EdgeTypeface;
 
     impl Typeface for EdgeTypeface {
@@ -2481,6 +2541,7 @@ mod tests {
         let broken = BrokenLines {
             shaped: &shaped,
             lines: &broken_storage,
+            truncated: false,
         };
         let mut scratch = [ShapedGlyph::default(); 2];
         let mut glyphs = [PositionedGlyph::default(); 2];
@@ -2578,6 +2639,7 @@ mod tests {
         let broken = BrokenLines {
             shaped: &shaped,
             lines: &broken_storage,
+            truncated: false,
         };
         let mut scratch = [ShapedGlyph::default(); 4];
         let mut glyphs = [PositionedGlyph::default(); 4];

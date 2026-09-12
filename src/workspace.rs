@@ -235,6 +235,7 @@ impl TextWorkspace {
                     spacing,
                     breaks: flow.line_break_provider,
                     widths: flow.line_width_provider,
+                    max_lines: flow.max_lines,
                 },
                 &mut self.broken,
             )

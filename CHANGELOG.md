@@ -11,6 +11,10 @@
 - `ParagraphLayout::from_slices` validates and borrows retained layout products without copying them.
 - `BaselinePlacement::place_carets_into` writes oriented caret frames without requiring a glyph-frame buffer.
 
+### Changed
+
+- Finite `max_lines` layout records truncation without requesting hidden line widths or broken-line storage beyond the configured limit.
+
 ## [0.2.4] - 2026-09-11
 
 ### Changed

@@ -5,6 +5,7 @@
 ### Added
 
 - Borrowed per-line width providers constrain wrapping, alignment, justification, and ellipsis without allocating an intermediate width table.
+- `BaselineProvider` places independent paragraph lines through indexed borrowed cursors without materializing a baseline array.
 - Allocation-free line and borrowed-polyline baseline cursors with forward sampling, normalized fixed-point tangents, and checked coordinate bounds.
 - `ParagraphLayout::place_on` produces caller-owned glyph and optional caret frame sidecars after capacity and geometry preflight.
 - `ParagraphLayout::from_slices` validates and borrows retained layout products without copying them.

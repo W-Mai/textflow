@@ -46,6 +46,57 @@ pub trait TextBaseline {
     fn cursor(&self) -> Self::Cursor<'_>;
 }
 
+/// Borrows one independently sampled baseline for each paragraph line.
+pub trait BaselineProvider {
+    type Cursor<'a>: BaselineCursor
+    where
+        Self: 'a;
+
+    fn line_count(&self) -> usize;
+
+    fn cursor(&self, line: usize) -> Option<Self::Cursor<'_>>;
+
+    fn is_empty(&self) -> bool {
+        self.line_count() == 0
+    }
+}
+
+impl<B> BaselineProvider for [B]
+where
+    B: TextBaseline,
+{
+    type Cursor<'a>
+        = B::Cursor<'a>
+    where
+        Self: 'a;
+
+    fn line_count(&self) -> usize {
+        self.len()
+    }
+
+    fn cursor(&self, line: usize) -> Option<Self::Cursor<'_>> {
+        self.get(line).map(TextBaseline::cursor)
+    }
+}
+
+impl<B, const N: usize> BaselineProvider for [B; N]
+where
+    B: TextBaseline,
+{
+    type Cursor<'a>
+        = B::Cursor<'a>
+    where
+        Self: 'a;
+
+    fn line_count(&self) -> usize {
+        N
+    }
+
+    fn cursor(&self, line: usize) -> Option<Self::Cursor<'_>> {
+        self.get(line).map(TextBaseline::cursor)
+    }
+}
+
 /// A straight baseline between two fixed-point positions.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LineBaseline {
@@ -292,6 +343,7 @@ impl<'a> PlacedText<'a> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PlacementError {
     BaselineCount { required: usize, provided: usize },
+    MissingBaseline { line: usize },
     InsufficientGlyphCapacity { required: usize },
     InsufficientCaretCapacity { required: usize },
     InvalidLayout,
@@ -303,13 +355,13 @@ pub enum PlacementError {
 }
 
 /// Validated placement operation for a paragraph and one baseline per line.
-pub struct BaselinePlacement<'a, 'layout, B> {
+pub struct BaselinePlacement<'a, 'layout, P: ?Sized> {
     layout: &'a ParagraphLayout<'layout>,
-    baselines: &'a [B],
+    baselines: &'a P,
 }
 
 impl<'layout> ParagraphLayout<'layout> {
-    pub fn place_on<'a, B>(&'a self, baselines: &'a [B]) -> BaselinePlacement<'a, 'layout, B>
+    pub fn place_on<'a, B>(&'a self, baselines: &'a [B]) -> BaselinePlacement<'a, 'layout, [B]>
     where
         B: TextBaseline,
     {
@@ -318,11 +370,21 @@ impl<'layout> ParagraphLayout<'layout> {
             baselines,
         }
     }
+
+    pub fn place_with<'a, P>(&'a self, baselines: &'a P) -> BaselinePlacement<'a, 'layout, P>
+    where
+        P: BaselineProvider + ?Sized,
+    {
+        BaselinePlacement {
+            layout: self,
+            baselines,
+        }
+    }
 }
 
-impl<B> BaselinePlacement<'_, '_, B>
+impl<P> BaselinePlacement<'_, '_, P>
 where
-    B: TextBaseline,
+    P: BaselineProvider + ?Sized,
 {
     pub const fn requirements(&self) -> PlacementRequirements {
         PlacementRequirements {
@@ -390,19 +452,19 @@ where
     }
 
     fn validate(&self, include_carets: bool) -> Result<(), PlacementError> {
-        if self.baselines.len() < self.layout.lines().len() {
+        if self.baselines.line_count() < self.layout.lines().len() {
             return Err(PlacementError::BaselineCount {
                 required: self.layout.lines().len(),
-                provided: self.baselines.len(),
+                provided: self.baselines.line_count(),
             });
         }
         for (line_index, line) in self.layout.lines().iter().copied().enumerate() {
             let glyphs = self.line_glyphs(line)?;
-            let mut cursor = self.baselines[line_index].cursor();
+            let mut cursor = self.cursor(line_index)?;
             validate_glyphs(line_index, glyphs, &mut cursor)?;
             if include_carets {
                 let carets = self.line_carets(line)?;
-                let mut cursor = self.baselines[line_index].cursor();
+                let mut cursor = self.cursor(line_index)?;
                 validate_carets(line_index, carets, &mut cursor)?;
             }
         }
@@ -410,15 +472,15 @@ where
     }
 
     fn validate_carets(&self) -> Result<(), PlacementError> {
-        if self.baselines.len() < self.layout.lines().len() {
+        if self.baselines.line_count() < self.layout.lines().len() {
             return Err(PlacementError::BaselineCount {
                 required: self.layout.lines().len(),
-                provided: self.baselines.len(),
+                provided: self.baselines.line_count(),
             });
         }
         for (line_index, line) in self.layout.lines().iter().copied().enumerate() {
             let carets = self.line_carets(line)?;
-            let mut cursor = self.baselines[line_index].cursor();
+            let mut cursor = self.cursor(line_index)?;
             validate_carets(line_index, carets, &mut cursor)?;
         }
         Ok(())
@@ -429,7 +491,7 @@ where
             let range = checked_range(line.glyphs(), self.layout.glyphs().len())?;
             let glyphs = &self.layout.glyphs()[range.clone()];
             let frames = &mut output[range];
-            let mut cursor = self.baselines[line_index].cursor();
+            let mut cursor = self.cursor(line_index)?;
             for (line_glyph, (glyph, frame)) in glyphs.iter().zip(frames).enumerate() {
                 *frame = place_glyph(line_index, line_glyph, line, glyph, &mut cursor)?;
             }
@@ -442,7 +504,7 @@ where
             let range = checked_range(line.carets(), self.layout.carets().len())?;
             let carets = &self.layout.carets()[range.clone()];
             let frames = &mut output[range];
-            let mut cursor = self.baselines[line_index].cursor();
+            let mut cursor = self.cursor(line_index)?;
             for (line_caret, (caret, frame)) in carets.iter().zip(frames).enumerate() {
                 *frame = place_caret(line_index, line_caret, line, caret, &mut cursor)?;
             }
@@ -458,6 +520,12 @@ where
     fn line_carets(&self, line: LayoutLine) -> Result<&[CaretStop], PlacementError> {
         let range = checked_range(line.carets(), self.layout.carets().len())?;
         Ok(&self.layout.carets()[range])
+    }
+
+    fn cursor(&self, line: usize) -> Result<P::Cursor<'_>, PlacementError> {
+        self.baselines
+            .cursor(line)
+            .ok_or(PlacementError::MissingBaseline { line })
     }
 }
 
@@ -731,6 +799,22 @@ mod tests {
 
     struct Mono;
 
+    struct BorrowedLines {
+        lines: [LineBaseline; 2],
+    }
+
+    impl BaselineProvider for BorrowedLines {
+        type Cursor<'a> = LineCursor;
+
+        fn line_count(&self) -> usize {
+            self.lines.len()
+        }
+
+        fn cursor(&self, line: usize) -> Option<Self::Cursor<'_>> {
+            self.lines.get(line).map(TextBaseline::cursor)
+        }
+    }
+
     impl GlyphSource for Mono {
         fn id(&self) -> FontId {
             FontId::new(1)
@@ -861,6 +945,41 @@ mod tests {
         assert_eq!(placed.glyph_frames()[1].local_origin.x, 512);
         assert_eq!(placed.caret_frames().unwrap()[0].local_origin.x, 256);
         assert_eq!(placed.caret_frames().unwrap()[2].local_origin.x, 768);
+    }
+
+    #[test]
+    fn provider_places_each_line_without_a_baseline_slice() {
+        let face = SimpleTypeface::new(&Mono);
+        let widths = [256, 256];
+        let mut scratch = LayoutScratch::<4, 8, 2, 8>::new();
+        let layout = TextFlow::new("ab", 256)
+            .with_line_widths(&widths)
+            .with_line_height(256)
+            .with_wrap(crate::WrapMode::Grapheme)
+            .layout_with_scratch(&[&face], &mut scratch)
+            .unwrap();
+        let baselines = BorrowedLines {
+            lines: [
+                LineBaseline::new(FlowPoint { x: 10, y: 20 }, FlowPoint { x: 266, y: 20 }).unwrap(),
+                LineBaseline::new(FlowPoint { x: 30, y: 400 }, FlowPoint { x: 286, y: 400 })
+                    .unwrap(),
+            ],
+        };
+        let mut glyphs = [GlyphFrame::default(); 2];
+
+        let placed = layout
+            .place_with(&baselines)
+            .place_into(PlacementOutput::new(&mut glyphs))
+            .unwrap();
+
+        assert_eq!(
+            placed.glyph_frames()[0].local_origin,
+            FlowPoint { x: 10, y: 20 }
+        );
+        assert_eq!(
+            placed.glyph_frames()[1].local_origin,
+            FlowPoint { x: 30, y: 400 }
+        );
     }
 
     #[test]

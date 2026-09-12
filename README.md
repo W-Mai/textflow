@@ -55,7 +55,7 @@ assert_eq!(lines, ["A small UI", "can still", "set type", "well."]);
 - Format-neutral `Typeface` and `GlyphSource` interfaces for TTF, OpenType, MIRX, flash-backed assets, and application-specific font stores.
 - Stable glyph IDs, UTF-8 cluster ranges, visual bidi runs, safe line boundaries, and caret positions.
 - Borrowed per-line widths let shaped paragraphs follow baselines with different usable lengths.
-- Optional baseline placement maps positioned glyphs and carets onto borrowed line or polyline geometry using caller-owned frame buffers.
+- Optional baseline placement maps positioned glyphs and carets onto borrowed line, polyline, or indexed provider geometry using caller-owned frame buffers.
 - Optional reusable heap workspace with element and byte limits, lazy growth, and direct caller-owned output.
 
 ## Embedded footprint

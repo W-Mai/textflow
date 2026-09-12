@@ -52,10 +52,42 @@ pub enum LayoutError {
     InvalidRun,
     InvalidTypefaceOutput { run: usize },
     InvalidWidth,
+    MissingLineWidth { line: usize },
     InvalidLineHeight,
     CoordinateOverflow,
     Font(FontAccessError),
     Shape { run: usize, error: ShapeError },
+}
+
+/// Supplies the available inline extent for each laid-out line.
+pub trait LineWidthProvider {
+    fn line_count(&self) -> usize;
+
+    fn width(&self, line: usize) -> Option<usize>;
+
+    fn is_empty(&self) -> bool {
+        self.line_count() == 0
+    }
+}
+
+impl LineWidthProvider for [usize] {
+    fn line_count(&self) -> usize {
+        self.len()
+    }
+
+    fn width(&self, line: usize) -> Option<usize> {
+        self.get(line).copied()
+    }
+}
+
+impl<const N: usize> LineWidthProvider for [usize; N] {
+    fn line_count(&self) -> usize {
+        N
+    }
+
+    fn width(&self, line: usize) -> Option<usize> {
+        self.get(line).copied()
+    }
 }
 
 impl From<FontAccessError> for LayoutError {
@@ -206,10 +238,10 @@ impl<'a> LogicalRuns<'a> {
         typefaces: &[&dyn Typeface],
         features: &[FontFeature],
         broken: &BrokenLines<'_, '_>,
-        options: LayoutOptions,
+        config: ParagraphConfig<'_>,
         buffers: LayoutBuffers<'output>,
     ) -> Result<ParagraphLayout<'output>, LayoutError> {
-        ParagraphBuilder::new(options, buffers).layout(
+        ParagraphBuilder::new(config, buffers).layout(
             LayoutInput {
                 text,
                 typefaces,
@@ -219,6 +251,24 @@ impl<'a> LogicalRuns<'a> {
             },
             broken,
         )
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ParagraphConfig<'a> {
+    options: LayoutOptions,
+    line_widths: Option<&'a dyn LineWidthProvider>,
+}
+
+impl<'a> ParagraphConfig<'a> {
+    pub(crate) const fn new(
+        options: LayoutOptions,
+        line_widths: Option<&'a dyn LineWidthProvider>,
+    ) -> Self {
+        Self {
+            options,
+            line_widths,
+        }
     }
 }
 
@@ -238,18 +288,20 @@ struct SyntheticRun {
     anchor: u32,
 }
 
-struct ParagraphBuilder<'a> {
+struct ParagraphBuilder<'output, 'config> {
     options: LayoutOptions,
-    buffers: LayoutBuffers<'a>,
+    line_widths: Option<&'config dyn LineWidthProvider>,
+    buffers: LayoutBuffers<'output>,
     run_count: usize,
     glyph_count: usize,
     caret_count: usize,
 }
 
-impl<'output> ParagraphBuilder<'output> {
-    fn new(options: LayoutOptions, buffers: LayoutBuffers<'output>) -> Self {
+impl<'output, 'config> ParagraphBuilder<'output, 'config> {
+    fn new(config: ParagraphConfig<'config>, buffers: LayoutBuffers<'output>) -> Self {
         Self {
-            options,
+            options: config.options,
+            line_widths: config.line_widths,
             buffers,
             run_count: 0,
             glyph_count: 0,
@@ -275,8 +327,7 @@ impl<'output> ParagraphBuilder<'output> {
                 if self.options.overflow == Overflow::Ellipsis
                     && line_index + 1 == line_count
                     && self
-                        .options
-                        .width
+                        .width(line_index)?
                         .is_some_and(|width| self.buffers.lines[line_index].advance > width)
                 {
                     let line_run_start = self.buffers.lines[line_index].runs.start as usize;
@@ -357,7 +408,7 @@ impl<'output> ParagraphBuilder<'output> {
             .x
             .checked_sub(origin.x)
             .ok_or(LayoutError::CoordinateOverflow)?;
-        let offset = self.alignment_offset(advance)?;
+        let offset = self.alignment_offset(line_index, advance)?;
         let aligned_origin = FlowPoint {
             x: origin
                 .x
@@ -370,6 +421,7 @@ impl<'output> ParagraphBuilder<'output> {
             advance = self.justify_line(
                 input.text,
                 broken,
+                line_index,
                 line_glyph_start,
                 line_caret_start,
                 advance,
@@ -430,7 +482,7 @@ impl<'output> ParagraphBuilder<'output> {
                         .checked_add(glyph.advance.x)
                         .ok_or(LayoutError::CoordinateOverflow)
                 })?;
-        let width = self.options.width.unwrap_or(i32::MAX);
+        let width = self.width(line_index)?.unwrap_or(i32::MAX);
         let content_limit = width
             .checked_sub(suffix_advance)
             .and_then(|value| value.checked_sub(self.options.spacing.letter))
@@ -501,8 +553,20 @@ impl<'output> ParagraphBuilder<'output> {
         Ok(())
     }
 
-    fn alignment_offset(&self, advance: i32) -> Result<i32, LayoutError> {
-        let Some(width) = self.options.width else {
+    fn width(&self, line: usize) -> Result<Option<i32>, LayoutError> {
+        let Some(provider) = self.line_widths else {
+            return Ok(self.options.width);
+        };
+        let width = provider
+            .width(line)
+            .ok_or(LayoutError::MissingLineWidth { line })?;
+        i32::try_from(width)
+            .map(Some)
+            .map_err(|_| LayoutError::InvalidWidth)
+    }
+
+    fn alignment_offset(&self, line: usize, advance: i32) -> Result<i32, LayoutError> {
+        let Some(width) = self.width(line)? else {
             return Ok(0);
         };
         let remaining = width.saturating_sub(advance).max(0);
@@ -546,11 +610,12 @@ impl<'output> ParagraphBuilder<'output> {
         &mut self,
         text: &str,
         line: BrokenLine,
+        line_index: usize,
         glyph_start: usize,
         caret_start: usize,
         advance: i32,
     ) -> Result<i32, LayoutError> {
-        let Some(width) = self.options.width else {
+        let Some(width) = self.width(line_index)? else {
             return Ok(advance);
         };
         let remaining = width.saturating_sub(advance);
@@ -1060,7 +1125,7 @@ impl ShapedText<'_> {
         spacing: TextSpacing,
         output: &'output mut [BrokenLine],
     ) -> Result<BrokenLines<'shaped, 'output>, LayoutError> {
-        self.break_into_with_provider(text, max_width, mode, spacing, None, output)
+        self.break_into_with_provider(text, BreakConfig::new(max_width, mode, spacing), output)
     }
 
     /// Breaks shaped text with additional opportunities supplied by `provider`.
@@ -1074,19 +1139,20 @@ impl ShapedText<'_> {
         provider: &dyn LineBreakProvider,
         output: &'output mut [BrokenLine],
     ) -> Result<BrokenLines<'shaped, 'output>, LayoutError> {
-        self.break_into_with_provider(text, max_width, mode, spacing, Some(provider), output)
+        self.break_into_with_provider(
+            text,
+            BreakConfig::new(max_width, mode, spacing).with_breaks(provider),
+            output,
+        )
     }
 
     pub(crate) fn break_into_with_provider<'shaped, 'output>(
         &'shaped self,
         text: &str,
-        max_width: i32,
-        mode: WrapMode,
-        spacing: TextSpacing,
-        provider: Option<&dyn LineBreakProvider>,
+        config: BreakConfig<'_>,
         output: &'output mut [BrokenLine],
     ) -> Result<BrokenLines<'shaped, 'output>, LayoutError> {
-        if max_width < 0 {
+        if config.max_width < 0 {
             return Err(LayoutError::InvalidWidth);
         }
         let start = self.text.start as usize;
@@ -1099,7 +1165,7 @@ impl ShapedText<'_> {
             return Err(LayoutError::InvalidRun);
         }
         let breaks = line_breaks(&text[start..end]).peekable();
-        let mut breaker = LineBreaker::new(self, text, max_width, mode, breaks, provider, output);
+        let mut breaker = LineBreaker::new(self, text, config, breaks, output);
         let mut glyphs = LogicalGlyphs::new(self).peekable();
         while let Some(first) = glyphs.next() {
             let cluster = first.cluster;
@@ -1114,11 +1180,39 @@ impl ShapedText<'_> {
                 glyphs.next();
             }
             advance = advance
-                .checked_add(spacing_after(text, cluster, self.text, spacing)?)
+                .checked_add(spacing_after(text, cluster, self.text, config.spacing)?)
                 .ok_or(LayoutError::CoordinateOverflow)?;
             breaker.add_cluster(cluster, advance)?;
         }
         breaker.finish()
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct BreakConfig<'a> {
+    pub(crate) max_width: i32,
+    pub(crate) mode: WrapMode,
+    pub(crate) spacing: TextSpacing,
+    pub(crate) breaks: Option<&'a dyn LineBreakProvider>,
+    pub(crate) widths: Option<&'a dyn LineWidthProvider>,
+}
+
+impl<'a> BreakConfig<'a> {
+    #[cfg(test)]
+    const fn new(max_width: i32, mode: WrapMode, spacing: TextSpacing) -> Self {
+        Self {
+            max_width,
+            mode,
+            spacing,
+            breaks: None,
+            widths: None,
+        }
+    }
+
+    #[cfg(test)]
+    const fn with_breaks(mut self, breaks: &'a dyn LineBreakProvider) -> Self {
+        self.breaks = Some(breaks);
+        self
     }
 }
 
@@ -1216,6 +1310,8 @@ struct LineBreaker<'shaped, 'glyphs, 'text, 'output> {
     mode: WrapMode,
     breaks: Peekable<LineBreaks<'text>>,
     provider: Option<&'text dyn LineBreakProvider>,
+    widths: Option<&'text dyn LineWidthProvider>,
+    line: usize,
     writer: LineWriter<'output>,
     line_start: u32,
     width: i32,
@@ -1226,20 +1322,20 @@ impl<'shaped, 'glyphs, 'text, 'output> LineBreaker<'shaped, 'glyphs, 'text, 'out
     fn new(
         shaped: &'shaped ShapedText<'glyphs>,
         text: &'text str,
-        max_width: i32,
-        mode: WrapMode,
+        config: BreakConfig<'text>,
         breaks: Peekable<LineBreaks<'text>>,
-        provider: Option<&'text dyn LineBreakProvider>,
         output: &'output mut [BrokenLine],
     ) -> Self {
         Self {
             shaped,
             text,
             paragraph: shaped.text,
-            max_width,
-            mode,
+            max_width: config.max_width,
+            mode: config.mode,
             breaks,
-            provider,
+            provider: config.breaks,
+            widths: config.widths,
+            line: 0,
             writer: LineWriter::new(output),
             line_start: shaped.text.start,
             width: 0,
@@ -1254,7 +1350,8 @@ impl<'shaped, 'glyphs, 'text, 'output> LineBreaker<'shaped, 'glyphs, 'text, 'out
             .width
             .checked_add(advance)
             .ok_or(LayoutError::CoordinateOverflow)?;
-        if self.width > self.max_width {
+        let line_width = self.line_width()?;
+        if self.width > line_width {
             match self.mode {
                 WrapMode::NoWrap => {}
                 WrapMode::Word => {
@@ -1333,7 +1430,7 @@ impl<'shaped, 'glyphs, 'text, 'output> LineBreaker<'shaped, 'glyphs, 'text, 'out
         if !matches!(self.mode, WrapMode::Word | WrapMode::WordOrGrapheme) {
             return Ok(());
         }
-        if self.width > self.max_width {
+        if self.width > self.line_width()? {
             self.emit(offset, self.width, LineEnd::Wrap)
         } else {
             self.last_allowed = Some((offset, self.width));
@@ -1356,7 +1453,21 @@ impl<'shaped, 'glyphs, 'text, 'output> LineBreaker<'shaped, 'glyphs, 'text, 'out
             .checked_sub(advance)
             .ok_or(LayoutError::CoordinateOverflow)?;
         self.last_allowed = None;
+        self.line = self
+            .line
+            .checked_add(1)
+            .ok_or(LayoutError::CoordinateOverflow)?;
         Ok(())
+    }
+
+    fn line_width(&self) -> Result<i32, LayoutError> {
+        let Some(widths) = self.widths else {
+            return Ok(self.max_width);
+        };
+        let width = widths
+            .width(self.line)
+            .ok_or(LayoutError::MissingLineWidth { line: self.line })?;
+        i32::try_from(width).map_err(|_| LayoutError::InvalidWidth)
     }
 
     fn finish(mut self) -> Result<BrokenLines<'shaped, 'output>, LayoutError> {
@@ -1563,10 +1674,13 @@ impl<const RUNS: usize, const GLYPHS: usize, const LINES: usize, const CARETS: u
         };
         let broken = shaped.break_into_with_provider(
             flow.text,
-            max_width,
-            flow.wrap,
-            spacing,
-            flow.line_break_provider,
+            BreakConfig {
+                max_width,
+                mode: flow.wrap,
+                spacing,
+                breaks: flow.line_break_provider,
+                widths: flow.line_width_provider,
+            },
             &mut self.broken,
         )?;
         let options = flow.layout_options(line_advance, direction, width);
@@ -1575,7 +1689,7 @@ impl<const RUNS: usize, const GLYPHS: usize, const LINES: usize, const CARETS: u
             typefaces,
             flow.features,
             &broken,
-            options,
+            ParagraphConfig::new(options, flow.line_width_provider),
             LayoutBuffers::new(
                 &mut self.scratch,
                 &mut self.glyphs,
@@ -1927,6 +2041,71 @@ mod tests {
         assert_eq!(layout.carets().len(), 4);
     }
 
+    #[test]
+    fn line_widths_control_each_break_independently() {
+        let font = SimpleTypeface::new(&Source {
+            key: 7,
+            ascii: true,
+        });
+        let typefaces: [&dyn Typeface; 1] = [&font];
+        let widths = [3, 1, 2];
+        let mut scratch = LayoutScratch::<8, 16, 8, 32>::new();
+
+        let layout = crate::TextFlow::new("abcdef", 99)
+            .with_line_widths(&widths)
+            .with_wrap(WrapMode::Grapheme)
+            .layout_with_scratch(&typefaces, &mut scratch)
+            .unwrap();
+
+        assert_eq!(layout.lines().len(), 3);
+        assert_eq!(layout.lines()[0].advance(), 3);
+        assert_eq!(layout.lines()[1].advance(), 1);
+        assert_eq!(layout.lines()[2].advance(), 2);
+    }
+
+    #[test]
+    fn alignment_uses_the_width_of_its_line() {
+        let font = SimpleTypeface::new(&Source {
+            key: 7,
+            ascii: true,
+        });
+        let typefaces: [&dyn Typeface; 1] = [&font];
+        let widths = [4, 4];
+        let mut scratch = LayoutScratch::<8, 16, 8, 32>::new();
+
+        let layout = crate::TextFlow::new("abcdef", 99)
+            .with_line_widths(&widths)
+            .with_wrap(WrapMode::Grapheme)
+            .with_alignment(Alignment::Center)
+            .layout_with_scratch(&typefaces, &mut scratch)
+            .unwrap();
+
+        assert_eq!(layout.lines().len(), 2);
+        assert_eq!(layout.lines()[0].origin().x, 0);
+        assert_eq!(layout.lines()[1].origin().x, 1);
+    }
+
+    #[test]
+    fn missing_line_width_is_reported() {
+        let font = SimpleTypeface::new(&Source {
+            key: 7,
+            ascii: true,
+        });
+        let typefaces: [&dyn Typeface; 1] = [&font];
+        let widths = [2];
+        let mut scratch = LayoutScratch::<8, 16, 8, 32>::new();
+
+        let result = crate::TextFlow::new("abc", 99)
+            .with_line_widths(&widths)
+            .with_wrap(WrapMode::Grapheme)
+            .layout_with_scratch(&typefaces, &mut scratch);
+
+        assert!(matches!(
+            result,
+            Err(LayoutError::MissingLineWidth { line: 1 })
+        ));
+    }
+
     struct EdgeTypeface;
 
     impl Typeface for EdgeTypeface {
@@ -2252,7 +2431,7 @@ mod tests {
                 &typefaces,
                 &[],
                 &broken,
-                LayoutOptions::new(10).with_spacing(spacing),
+                ParagraphConfig::new(LayoutOptions::new(10).with_spacing(spacing), None),
                 LayoutBuffers::new(
                     &mut scratch,
                     &mut glyphs,
@@ -2314,9 +2493,12 @@ mod tests {
                 &typefaces,
                 &[],
                 &broken,
-                LayoutOptions::new(10)
-                    .with_width(10)
-                    .with_alignment(Alignment::Center),
+                ParagraphConfig::new(
+                    LayoutOptions::new(10)
+                        .with_width(10)
+                        .with_alignment(Alignment::Center),
+                    None,
+                ),
                 LayoutBuffers::new(
                     &mut scratch,
                     &mut glyphs,
@@ -2344,10 +2526,13 @@ mod tests {
                 &typefaces,
                 &[],
                 &broken,
-                LayoutOptions::new(10)
-                    .with_width(10)
-                    .with_alignment(Alignment::Start)
-                    .with_direction(Direction::RightToLeft),
+                ParagraphConfig::new(
+                    LayoutOptions::new(10)
+                        .with_width(10)
+                        .with_alignment(Alignment::Start)
+                        .with_direction(Direction::RightToLeft),
+                    None,
+                ),
                 LayoutBuffers::new(
                     &mut scratch,
                     &mut glyphs,
@@ -2405,9 +2590,12 @@ mod tests {
                 &typefaces,
                 &[],
                 &broken,
-                LayoutOptions::new(10)
-                    .with_width(8)
-                    .with_alignment(Alignment::Justify),
+                ParagraphConfig::new(
+                    LayoutOptions::new(10)
+                        .with_width(8)
+                        .with_alignment(Alignment::Justify),
+                    None,
+                ),
                 LayoutBuffers::new(
                     &mut scratch,
                     &mut glyphs,
@@ -2613,7 +2801,10 @@ mod tests {
                 &typefaces,
                 &[],
                 &broken,
-                LayoutOptions::new(10).with_origin(FlowPoint { x: 5, y: 7 }),
+                ParagraphConfig::new(
+                    LayoutOptions::new(10).with_origin(FlowPoint { x: 5, y: 7 }),
+                    None,
+                ),
                 LayoutBuffers::new(
                     &mut scratch,
                     &mut glyphs,
@@ -2676,10 +2867,13 @@ mod tests {
                 &typefaces,
                 &[],
                 &broken,
-                LayoutOptions::new(10)
-                    .with_width(4)
-                    .with_max_lines(1)
-                    .with_overflow(Overflow::Ellipsis),
+                ParagraphConfig::new(
+                    LayoutOptions::new(10)
+                        .with_width(4)
+                        .with_max_lines(1)
+                        .with_overflow(Overflow::Ellipsis),
+                    None,
+                ),
                 LayoutBuffers::new(
                     &mut scratch,
                     &mut glyphs,
@@ -2774,7 +2968,7 @@ mod tests {
                 &typefaces,
                 &[],
                 &broken,
-                LayoutOptions::new(10),
+                ParagraphConfig::new(LayoutOptions::new(10), None),
                 LayoutBuffers::new(
                     &mut scratch,
                     &mut glyphs,

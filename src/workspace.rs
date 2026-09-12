@@ -229,10 +229,13 @@ impl TextWorkspace {
         let broken = shaped
             .break_into_with_provider(
                 flow.text,
-                max_width,
-                flow.wrap,
-                spacing,
-                flow.line_break_provider,
+                crate::layout::BreakConfig {
+                    max_width,
+                    mode: flow.wrap,
+                    spacing,
+                    breaks: flow.line_break_provider,
+                    widths: flow.line_width_provider,
+                },
                 &mut self.broken,
             )
             .map_err(map_break)?;
@@ -243,7 +246,7 @@ impl TextWorkspace {
                 typefaces,
                 flow.features,
                 &broken,
-                options,
+                crate::layout::ParagraphConfig::new(options, flow.line_width_provider),
                 LayoutBuffers::new(
                     &mut self.scratch,
                     &mut *output.glyphs,

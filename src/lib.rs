@@ -92,6 +92,8 @@ pub struct TextFlow<'a> {
     #[cfg(feature = "shaping")]
     line_break_provider: Option<&'a dyn LineBreakProvider>,
     #[cfg(feature = "shaping")]
+    line_width_provider: Option<&'a dyn layout::LineWidthProvider>,
+    #[cfg(feature = "shaping")]
     letter_spacing: i32,
     #[cfg(feature = "shaping")]
     word_spacing: i32,
@@ -125,6 +127,8 @@ impl<'a> TextFlow<'a> {
             wrap: WrapMode::Word,
             #[cfg(feature = "shaping")]
             line_break_provider: None,
+            #[cfg(feature = "shaping")]
+            line_width_provider: None,
             #[cfg(feature = "shaping")]
             letter_spacing: 0,
             #[cfg(feature = "shaping")]
@@ -190,6 +194,13 @@ impl<'a> TextFlow<'a> {
     /// Adds application-defined line breaks without transferring ownership.
     pub const fn with_line_break_provider(mut self, provider: &'a dyn LineBreakProvider) -> Self {
         self.line_break_provider = Some(provider);
+        self
+    }
+
+    #[cfg(feature = "shaping")]
+    /// Borrows the available inline extent for each produced line.
+    pub const fn with_line_widths(mut self, provider: &'a dyn layout::LineWidthProvider) -> Self {
+        self.line_width_provider = Some(provider);
         self
     }
 

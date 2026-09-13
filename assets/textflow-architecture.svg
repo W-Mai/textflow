@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 500" role="img" aria-labelledby="title desc">
   <title id="title">TextFlow architecture</title>
-  <desc id="desc">UTF-8 text moves through Unicode analysis, bidirectional resolution, shaping with typeface fallback, and bounded line layout into visual runs and positioned glyphs. Typeface adapters and caller-owned buffers feed the pipeline.</desc>
+  <desc id="desc">UTF-8 text moves through Unicode analysis, bidirectional resolution, shaping with typeface fallback, and bounded line layout into visual runs and positioned glyphs. Typeface adapters and caller-owned buffers feed the pipeline. Paragraph output can optionally be placed on borrowed baselines.</desc>
   <defs>
     <linearGradient id="surface" x1="0" y1="0" x2="1" y2="1">
       <stop class="surface-start" offset="0"/>
@@ -170,7 +170,7 @@
   <g class="stage stage-4">
     <rect class="card" x="814" y="127" width="170" height="148" rx="18"/>
     <circle class="port" cx="966" cy="145" r="5" fill="#1490ae"/>
-    <text class="eyebrow" x="836" y="158">BREAK + PLACE</text>
+    <text class="eyebrow" x="836" y="158">BREAK + LAYOUT</text>
     <text class="label" x="836" y="188">Line layout</text>
     <text class="copy" x="836" y="214">wrap · position</text>
     <text class="copy" x="836" y="234">carets · visual runs</text>
@@ -187,21 +187,29 @@
     <text x="1036" y="254" fill="#e5fbff" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12" font-weight="500">CaretStop[]</text>
   </g>
 
-  <path class="support" d="M472 359V322H694V281"/>
-  <path class="support" d="M830 359V322H898V281"/>
+  <path class="support" d="M214 359V319H694V281"/>
+  <path class="support" d="M574 359V309H898V281"/>
+  <path class="connector" d="M1084 282V321H958V352"/>
   <g filter="url(#shadow)">
-    <rect class="card-soft" x="244" y="359" width="456" height="94" rx="18"/>
-    <circle cx="271" cy="384" r="7" fill="#2479c4"/>
-    <text class="label" x="288" y="390">Typeface seam</text>
-    <text class="copy" x="270" y="416">MIRX · OpenType · flash-backed stores · custom raster sources</text>
-    <rect class="pill" x="270" y="426" width="192" height="20" rx="7"/>
-    <text class="code" x="280" y="440">Typeface / GlyphSource</text>
+    <rect class="card-soft" x="44" y="359" width="340" height="94" rx="18"/>
+    <circle cx="71" cy="384" r="7" fill="#2479c4"/>
+    <text class="label" x="88" y="390">Typeface seam</text>
+    <text class="copy" x="70" y="416">MIRX · OpenType · flash · custom</text>
+    <rect class="pill" x="70" y="426" width="192" height="20" rx="7"/>
+    <text class="code" x="80" y="440">Typeface / GlyphSource</text>
 
-    <rect class="card-soft" x="730" y="359" width="426" height="94" rx="18"/>
-    <circle cx="757" cy="384" r="7" fill="#00a38c"/>
-    <text class="label" x="774" y="390">Caller-owned memory</text>
-    <text class="copy" x="756" y="416">Capacity is visible before layout; storage is reused across calls.</text>
-    <rect class="pill" x="756" y="426" width="266" height="20" rx="7"/>
-    <text class="code" x="766" y="440">&amp;mut [runs] · &amp;mut [glyphs]</text>
+    <rect class="card-soft" x="404" y="359" width="340" height="94" rx="18"/>
+    <circle cx="431" cy="384" r="7" fill="#00a38c"/>
+    <text class="label" x="448" y="390">Caller-owned memory</text>
+    <text class="copy" x="430" y="416">Scratch and output stay caller-owned.</text>
+    <rect class="pill" x="430" y="426" width="266" height="20" rx="7"/>
+    <text class="code" x="440" y="440">&amp;mut [runs] · &amp;mut [glyphs]</text>
+
+    <rect class="card-soft" x="764" y="359" width="392" height="94" rx="18"/>
+    <circle cx="791" cy="384" r="7" fill="#ce422b"/>
+    <text class="label" x="808" y="390">Baseline placement</text>
+    <text class="copy" x="790" y="416">Lines / polylines → glyph and caret frames</text>
+    <rect class="pill" x="790" y="426" width="241" height="20" rx="7"/>
+    <text class="code" x="800" y="440">ParagraphLayout::place_on</text>
   </g>
 </svg>

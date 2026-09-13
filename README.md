@@ -29,7 +29,11 @@
 `TextFlow` provides line breaking, bidirectional text, glyph shaping, font fallback, visual runs, and caret positioning. Caller-owned buffers make memory use explicit, while the optional `alloc` feature provides a bounded workspace that grows private pipeline storage on demand and reuses it.
 
 <p align="center">
-  <img src="assets/textflow-architecture.svg" alt="TextFlow architecture: UTF-8 input passes through Unicode analysis, bidirectional resolution, typeface shaping, and line layout into positioned glyphs" width="1200">
+  <img src="assets/textflow-architecture.svg" alt="TextFlow architecture: UTF-8 input passes through Unicode analysis, bidirectional resolution, typeface shaping, and line layout into positioned glyphs, with optional baseline placement" width="1200">
+</p>
+
+<p align="center">
+  <img src="assets/textflow-layout.svg" alt="TextFlow layout: mixed-script text wraps into positioned lines and carets, then glyphs follow an optional borrowed polyline baseline" width="1200">
 </p>
 
 ## Used by

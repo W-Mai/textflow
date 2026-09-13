@@ -1,0 +1,161 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 540" role="img" aria-labelledby="title desc">
+  <title id="title">TextFlow layout and baseline placement</title>
+  <desc id="desc">A mixed-script paragraph is wrapped into positioned lines with caret stops, then optionally mapped onto a borrowed polyline baseline. Three cards lift in sequence while a flow trace moves between them.</desc>
+  <defs>
+    <linearGradient id="surface" x1="0" y1="0" x2="1" y2="1">
+      <stop class="surface-start" offset="0"/>
+      <stop class="surface-end" offset="1"/>
+    </linearGradient>
+    <linearGradient id="input" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#ef8a68" offset="0"/>
+      <stop stop-color="#ce422b" offset="1"/>
+    </linearGradient>
+    <linearGradient id="output" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#2479c4" offset="0"/>
+      <stop stop-color="#00a38c" offset="1"/>
+    </linearGradient>
+    <linearGradient id="flow" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#ce422b" offset="0"/>
+      <stop stop-color="#2479c4" offset=".55"/>
+      <stop stop-color="#00a38c" offset="1"/>
+    </linearGradient>
+    <filter id="z-blur" x="-25%" y="-25%" width="150%" height="170%">
+      <feGaussianBlur stdDeviation="6"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path class="arrow" d="M1 1 9 5 1 9Z"/>
+    </marker>
+  </defs>
+  <style>
+    .surface-start { stop-color: #ffffff; }
+    .surface-end { stop-color: #f3f7fb; }
+    .frame { fill: url(#surface); stroke: #d9e2ec; }
+    .card { fill: #ffffff; stroke: #d7e1eb; }
+    .card-soft { fill: #f7f9fc; stroke: #d7e1eb; }
+    .title { fill: #172033; font: 700 25px ui-sans-serif, system-ui, sans-serif; letter-spacing: -.4px; }
+    .eyebrow { fill: #5b6b80; font: 600 12px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 1.3px; }
+    .label { fill: #172033; font: 700 18px ui-sans-serif, system-ui, sans-serif; }
+    .copy { fill: #65758a; font: 500 12px ui-sans-serif, system-ui, sans-serif; }
+    .code { fill: #41536a; font: 600 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .pill { fill: #edf2f7; }
+    .guide { fill: none; stroke: #91a1b5; stroke-width: 1.5; stroke-dasharray: 5 5; }
+    .connector { fill: none; stroke: #91a1b5; stroke-width: 2; marker-end: url(#arrow); }
+    .arrow { fill: #91a1b5; }
+    .flow-line { fill: none; stroke: url(#flow); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 5 9; animation: stream 2.6s linear infinite; }
+    .source { fill: #fff; font: 600 22px ui-sans-serif, system-ui, sans-serif; }
+    .glyph { fill: #2479c4; font: 600 23px ui-sans-serif, system-ui, sans-serif; }
+    .glyph-alt { fill: #ce422b; font: 600 23px ui-sans-serif, system-ui, sans-serif; }
+    .path-glyph { fill: #2479c4; font: 650 36px ui-sans-serif, system-ui, sans-serif; }
+    .caret { stroke: #ce422b; stroke-width: 2; }
+    .z-shadow {
+      fill: #172033;
+      opacity: .1;
+      animation: depth-shadow 12s cubic-bezier(.4, 0, .2, 1) infinite;
+      transform-box: fill-box;
+      transform-origin: center;
+    }
+    .stage {
+      animation: lift 12s cubic-bezier(.4, 0, .2, 1) infinite;
+      transform-box: fill-box;
+      transform-origin: center;
+    }
+    .stage-0 { animation-delay: 0s; }
+    .stage-1 { animation-delay: 4s; }
+    .stage-2 { animation-delay: 8s; }
+    @keyframes stream { to { stroke-dashoffset: -28; } }
+    @keyframes lift {
+      0%, 14%, 100% { transform: scale(1); }
+      5%, 8% { transform: translateY(-5px) scale(1.04); }
+    }
+    @keyframes depth-shadow {
+      0%, 14%, 100% { opacity: .1; transform: translateY(2px) scale(.98, .94); }
+      5%, 8% { opacity: .24; transform: translateY(11px) scale(1.1, .9); }
+    }
+    @media (prefers-color-scheme: dark) {
+      .surface-start { stop-color: #111827; }
+      .surface-end { stop-color: #09111e; }
+      .frame { stroke: #2b3a50; }
+      .card { fill: #121d2d; stroke: #33445b; }
+      .card-soft { fill: #0d1726; stroke: #33445b; }
+      .title, .label { fill: #f1f5f9; }
+      .eyebrow, .copy { fill: #9eabc0; }
+      .code { fill: #c3cede; }
+      .pill { fill: #1c2a3d; }
+      .guide, .connector { stroke: #53657e; }
+      .arrow { fill: #53657e; }
+      .glyph, .path-glyph { fill: #72bdf4; }
+      .glyph-alt { fill: #ef9b79; }
+      .caret { stroke: #ef9b79; }
+      .z-shadow { fill: #000; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .flow-line, .stage, .z-shadow { animation: none; }
+      .z-shadow { opacity: .1; transform: translateY(2px) scale(.98, .94); }
+    }
+  </style>
+
+  <rect class="frame" x="1" y="1" width="1198" height="538" rx="30"/>
+  <text class="eyebrow" x="48" y="48">LAYOUT GEOMETRY</text>
+  <text class="title" x="48" y="82">Lines, glyphs, carets, and borrowed baselines</text>
+
+  <rect class="z-shadow stage-0" x="44" y="127" width="315" height="335" rx="18" filter="url(#z-blur)"/>
+  <rect class="z-shadow stage-1" x="395" y="127" width="370" height="335" rx="18" filter="url(#z-blur)"/>
+  <rect class="z-shadow stage-2" x="801" y="127" width="355" height="335" rx="18" filter="url(#z-blur)"/>
+  <path class="flow-line" d="M359 294H395M765 294H801"/>
+  <path class="connector" d="M359 294H395"/>
+  <path class="connector" d="M765 294H801"/>
+
+  <g class="stage stage-0">
+    <rect x="44" y="127" width="315" height="335" rx="18" fill="url(#input)"/>
+    <text x="69" y="163" fill="#fff1ec" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" font-weight="600" letter-spacing="1.3">SOURCE + WIDTHS</text>
+    <text x="69" y="204" fill="#fff" font-family="ui-sans-serif, system-ui, sans-serif" font-size="18" font-weight="700">One borrowed paragraph</text>
+    <rect x="69" y="225" width="265" height="118" rx="11" fill="#fff" fill-opacity=".15"/>
+    <text class="source" x="85" y="260">office AV</text>
+    <text class="source" x="85" y="298">文本排版</text>
+    <path d="M85 316H289" stroke="#fff" stroke-opacity=".75" stroke-width="2"/>
+    <path d="M85 309V323M289 309V323" stroke="#fff" stroke-opacity=".75" stroke-width="2"/>
+    <text x="85" y="365" fill="#fff1ec" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12">Per-line width constrains wrapping</text>
+    <rect x="69" y="394" width="246" height="29" rx="8" fill="#fff" fill-opacity=".18"/>
+    <text x="82" y="413" fill="#fff" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="600">with_line_widths(&amp;widths)</text>
+  </g>
+
+  <g class="stage stage-1">
+    <rect class="card" x="395" y="127" width="370" height="335" rx="18"/>
+    <text class="eyebrow" x="420" y="163">BREAK + SHAPE</text>
+    <text class="label" x="420" y="203">ParagraphLayout</text>
+    <text class="copy" x="420" y="228">Visual runs and positioned glyphs</text>
+    <path class="guide" d="M421 288H738M421 367H677"/>
+    <text class="glyph" x="428" y="285">o</text>
+    <text class="glyph" x="450" y="285">f</text>
+    <text class="glyph" x="463" y="285">f</text>
+    <text class="glyph" x="477" y="285">i</text>
+    <text class="glyph" x="487" y="285">c</text>
+    <text class="glyph" x="509" y="285">e</text>
+    <text class="glyph-alt" x="559" y="285">A</text>
+    <text class="glyph-alt" x="580" y="285">V</text>
+    <text class="glyph" x="428" y="364">文</text>
+    <text class="glyph" x="458" y="364">本</text>
+    <text class="glyph" x="488" y="364">排</text>
+    <text class="glyph" x="518" y="364">版</text>
+    <path class="caret" d="M545 257V291M611 257V291M550 336V370"/>
+    <text class="code" x="420" y="419">LayoutLine[] · Glyph[] · CaretStop[]</text>
+  </g>
+
+  <g class="stage stage-2">
+    <rect class="card" x="801" y="127" width="355" height="335" rx="18"/>
+    <text class="eyebrow" x="826" y="163">OPTIONAL PLACEMENT</text>
+    <text class="label" x="826" y="203">Borrowed baseline</text>
+    <text class="copy" x="826" y="228">Line, polyline, or indexed provider</text>
+    <path class="guide" d="M832 332L886 289L939 267L993 271L1047 297L1123 330"/>
+    <circle cx="832" cy="332" r="3" fill="#ce422b"/>
+    <circle cx="939" cy="267" r="3" fill="#ce422b"/>
+    <circle cx="1047" cy="297" r="3" fill="#ce422b"/>
+    <text class="path-glyph" x="840" y="324" transform="rotate(-33 840 324)">F</text>
+    <text class="path-glyph" x="884" y="288" transform="rotate(-22 884 288)">l</text>
+    <text class="path-glyph" x="922" y="270" transform="rotate(-8 922 270)">o</text>
+    <text class="path-glyph" x="978" y="273" transform="rotate(15 978 273)">w</text>
+    <path class="caret" d="M1060 267L1047 312"/>
+    <rect class="pill" x="826" y="391" width="291" height="30" rx="8"/>
+    <text class="code" x="839" y="411">GlyphFrame[] · CaretFrame[]</text>
+  </g>
+</svg>

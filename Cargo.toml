@@ -10,6 +10,7 @@ repository = "https://github.com/W-Mai/textflow"
 homepage = "https://github.com/W-Mai/textflow"
 documentation = "https://docs.rs/textflow-rs"
 readme = "README.md"
+exclude = ["playground", "tools", ".local"]
 keywords = ["text", "layout", "shaping", "unicode", "no-std"]
 categories = ["text-processing", "no-std", "embedded"]
 

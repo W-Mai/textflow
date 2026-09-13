@@ -15,6 +15,7 @@
 
   <p>
     <a href="#demo">Demo</a>
+    · <a href="#playground">Playground</a>
     · <a href="https://docs.rs/textflow-rs">API</a>
     · <a href="#embedded-footprint">Embedded</a>
     · <a href="#used-by">Used by</a>
@@ -47,6 +48,19 @@ let lines = TextFlow::new(text, 12)
 
 assert_eq!(lines, ["A small UI", "can still", "set type", "well."]);
 ```
+
+## Playground
+
+The [browser playground](playground/) runs TextFlow in WebAssembly and visualizes line breaks, Unicode clusters, bidi runs, positioned glyphs, carets, script providers, workspace limits, and baseline placement. Its scaffold generates compile-checked examples from the selected Cargo features.
+
+Building requires `wasm-pack` and the `wasm32-unknown-unknown` Rust target. Python 3 serves the static output.
+
+```sh
+tools/build-site.sh
+python3 -m http.server 8137 --directory playground/dist
+```
+
+Open `http://127.0.0.1:8137/` after building. The WASM demo uses a synthetic glyph source for display; layout coordinates and errors come from TextFlow.
 
 ## Text layout and shaping
 

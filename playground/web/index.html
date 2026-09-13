@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f3f0">
+  <meta name="description" content="Explore line breaking, Unicode text, shaping, and baseline placement in TextFlow.">
+  <title>TextFlow Playground</title>
+  <link rel="icon" href="assets/textflow-icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="terminal.css">
+</head>
+<body>
+  <div class="page-glow" aria-hidden="true"></div>
+  <header class="site-header">
+    <a class="brand" href="#playground" aria-label="TextFlow playground home">
+      <img src="assets/textflow-logo.svg" alt="TextFlow" width="176" height="44">
+    </a>
+    <div class="header-right">
+      <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Color theme: Auto">AUTO</button>
+      <span class="version-pill" id="version-pill">TextFlow</span>
+      <a href="https://docs.rs/textflow-rs" target="_blank" rel="noreferrer">API docs <span aria-hidden="true">↗</span></a>
+      <a href="https://github.com/W-Mai/textflow" target="_blank" rel="noreferrer">GitHub <span aria-hidden="true">↗</span></a>
+    </div>
+  </header>
+
+  <main id="playground">
+    <h1 class="sr-only">TextFlow Playground</h1>
+    <div class="workbench">
+      <aside class="rail" aria-label="Features">
+        <div class="rail-title"><span>FEATURES</span><span class="tiny-icon" aria-hidden="true">✳</span></div>
+        <div id="features" class="features" role="group" aria-label="TextFlow features"></div>
+        <div class="command-box">
+          <span>ADD TO A PROJECT</span>
+          <code id="add-command">cargo add textflow-rs</code>
+          <button id="copy-command" type="button" class="icon-button" aria-label="Copy command">↗</button>
+        </div>
+      </aside>
+
+      <div class="workbench-main">
+        <nav class="view-tabs" role="tablist" aria-label="Views">
+          <button class="view-tab is-active" data-view="playground" role="tab" aria-selected="true">Playground <span>01</span></button>
+          <button class="view-tab" data-view="scaffold" role="tab" aria-selected="false">Scaffold <span>02</span></button>
+          <button class="view-tab" data-view="docs" role="tab" aria-selected="false">API atlas <span>03</span></button>
+          <span class="engine-status" id="engine-status" role="status"><i></i> Loading…</span>
+        </nav>
+
+        <section class="view is-active" id="view-playground" role="tabpanel">
+          <div class="section-heading">
+            <div><span class="section-kicker">PLAYGROUND</span><h2 id="scene-title">Line flow</h2><p id="scene-description">Line breaks and widths.</p></div>
+            <span class="scene-counter" id="scene-counter">01 / 09</span>
+          </div>
+          <div class="scene-tabs" id="scene-tabs" role="tablist" aria-label="Scenes"></div>
+          <div class="playground-grid">
+            <div class="primary-column">
+              <section class="surface stage-surface" aria-label="Visualized output">
+                <div class="surface-head"><span><span class="head-dot"></span> OUTPUT</span><div class="stage-toggles"><label><input id="show-boxes" type="checkbox"> Bounds</label><label><input id="show-carets" type="checkbox"> Carets</label></div></div>
+                <div class="canvas-wrap"><canvas id="stage" aria-label="TextFlow layout visualization"></canvas><div class="canvas-empty" id="canvas-empty" hidden></div></div>
+                <div class="stage-footer"><span id="stage-summary">Loading…</span><span id="unit-label" hidden>1000 FONT UNITS / EM</span></div>
+              </section>
+              <section class="surface source-surface">
+                <div class="surface-head"><label for="source">SOURCE TEXT</label><span id="byte-count">0 UTF-8 BYTES</span></div>
+                <textarea id="source" spellcheck="false" maxlength="4096" rows="4"></textarea>
+              </section>
+            </div>
+            <div class="detail-column">
+              <section class="surface controls-surface"><div class="surface-head"><span>PARAMETERS</span><span class="head-glyph">⌘</span></div><div id="controls" class="controls"></div></section>
+              <section class="surface code-surface"><div class="surface-head"><span>RUST API</span><button class="text-button" id="copy-code">COPY</button></div><pre id="code-preview" class="code-preview"></pre></section>
+              <section class="surface inspect-surface"><div class="surface-head"><span>INSPECTOR</span><span id="inspector-count">—</span></div><div id="inspector" class="inspector"></div></section>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="view-scaffold" role="tabpanel" hidden>
+          <div class="section-heading"><div><span class="section-kicker">SCAFFOLD</span><h2>Start a project.</h2><p>Choose features, then copy a file or download the project.</p></div></div>
+          <div class="scaffold-layout">
+            <div class="surface scaffold-intro"><span class="panel-number">01</span><h3>Dependency</h3><pre id="scaffold-dependency"></pre><button class="action-button" id="copy-dependency">Copy dependency</button></div>
+            <div class="surface scaffold-files"><div class="surface-head"><span>02 / SOURCE FILES</span><button class="text-button" id="download-zip">DOWNLOAD ZIP ↗</button></div><div class="file-layout"><nav id="file-list" aria-label="Generated files"></nav><div class="file-content"><div class="file-content-head"><span id="file-name">src/main.rs</span><button id="copy-file" class="text-button">COPY</button></div><pre id="file-source"></pre></div></div></div>
+          </div>
+        </section>
+
+        <section class="view" id="view-docs" role="tabpanel" hidden>
+          <div class="section-heading"><div><span class="section-kicker">API ATLAS</span><h2>Find an API.</h2><p>Search by module, type, or method.</p></div></div>
+          <div class="docs-layout"><div class="surface docs-nav"><label class="search-label" for="docs-search">SEARCH THE API</label><input id="docs-search" type="search" placeholder="module, item, method…"><div id="docs-list"></div></div><article class="surface docs-detail" id="docs-detail"><div class="docs-placeholder">Select an API item to inspect its signature and source.</div></article></div>
+        </section>
+      </div>
+    </div>
+  </main>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

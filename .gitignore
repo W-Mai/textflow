@@ -1,4 +1,11 @@
 /target
+/playground/target
+/playground/Cargo.lock
+/playground/web/pkg
+/playground/web/data
+/playground/dist
+/tools/extract-docs/target
+/tools/extract-docs/Cargo.lock
 .idea
 Cargo.lock
 !examples/esp32c3/Cargo.lock

@@ -169,12 +169,18 @@ export class Stage {
     const y0 = 98;
     const size = Math.max(12, options.fontSize * fit);
     const runIndex = (index) => data.runs.findIndex((run) => index >= run.glyphs[0] && index < run.glyphs[1]);
-    for (const line of data.lines) {
-      const y = y0 + line.origin[1] * scale;
+    for (const [index, line] of data.lines.entries()) {
+      const baseline = data.baselines?.[index];
+      const start = baseline?.[0] ?? [line.origin[0], line.origin[1]];
+      const end = baseline?.[1] ?? [Math.max(0, (width - 25 - x0) / scale), line.origin[1]];
+      const x1 = x0 + start[0] * scale;
+      const y1 = y0 + start[1] * scale;
+      const x2 = x0 + end[0] * scale;
+      const y2 = y0 + end[1] * scale;
       ctx.strokeStyle = this.palette.line; ctx.setLineDash([4, 5]);
-      ctx.beginPath(); ctx.moveTo(x0, y + .5); ctx.lineTo(width - 25, y + .5); ctx.stroke(); ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); ctx.setLineDash([]);
       ctx.fillStyle = this.palette.muted; ctx.font = "9px ui-monospace, monospace";
-      ctx.fillText(String(data.lines.indexOf(line) + 1).padStart(2, "0"), 8, y - 5);
+      ctx.fillText(String(index + 1).padStart(2, "0"), 8, y1 - 5);
     }
     data.glyphs.forEach((glyph, index) => {
       const origin = glyph.frame?.origin ?? [glyph.origin[0] + glyph.offset[0], glyph.origin[1] + glyph.offset[1]];
@@ -202,7 +208,7 @@ export class Stage {
       ctx.restore();
       this.hitboxes.push({x: x - 3, y: y - size, width: Math.max(advance + 6, 15), height: size + 9, value: {type: "glyph", ...glyph, run: runIndex(index)}});
     });
-    if (overlays.carets) {
+    if (overlays.carets && !data.geometry) {
       for (const caret of data.carets) {
         const x = x0 + caret.position[0] * scale;
         const y = y0 + caret.position[1] * scale;

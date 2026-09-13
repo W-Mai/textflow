@@ -78,6 +78,47 @@ mod tests {
     }
 
     #[test]
+    fn core_width_control_reaches_cjk_breaks() {
+        let result = analyze(
+            "core",
+            "文本排版",
+            &Options {
+                width: 32,
+                ..Options::default()
+            },
+        );
+        let json = serde_json::to_value(result).unwrap();
+        assert_eq!(json["data"]["lines"].as_array().unwrap().len(), 4);
+        assert_eq!(json["data"]["lines"][0]["text"], "文");
+        assert_eq!(json["code"], "TextFlow::new(text, 2)");
+    }
+
+    #[test]
+    fn geometry_exposes_the_baselines_used_for_placement() {
+        let result = analyze(
+            "geometry",
+            "A ribbon bends around the hill and returns to the sea.",
+            &Options {
+                width: 32,
+                ..Options::default()
+            },
+        );
+        assert!(
+            result.ok,
+            "{:?}",
+            result.error.as_ref().map(|error| &error.message)
+        );
+        let json = serde_json::to_value(result).unwrap();
+        let baselines = json["data"]["baselines"].as_array().unwrap();
+        assert_eq!(
+            baselines.len(),
+            json["data"]["lines"].as_array().unwrap().len()
+        );
+        assert_ne!(baselines[0][0][1], baselines[0][1][1]);
+        assert!(json["data"]["glyphs"][0]["frame"].is_object());
+    }
+
+    #[test]
     fn all_scenes_return_typed_results_or_explicit_errors() {
         let samples = [
             ("unicode", "你好 e\u{301} hello"),

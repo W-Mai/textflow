@@ -133,7 +133,7 @@ pub const SCENES: &[SceneSpec] = &[
         label: "Baselines",
         requires: &["shaping"],
         sample: "A ribbon bends around the hill and returns to the sea.",
-        description: "Per-line widths and curved baselines.",
+        description: "Per-line widths and sloped baselines.",
     },
 ];
 
@@ -198,6 +198,8 @@ pub struct Run {
 #[serde(rename_all = "camelCase")]
 pub struct LayoutView {
     pub lines: Vec<LayoutLineView>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub baselines: Option<Vec<[[i32; 2]; 2]>>,
     pub glyphs: Vec<Glyph>,
     pub carets: Vec<Caret>,
     pub runs: Vec<VisualRunView>,
@@ -294,7 +296,7 @@ fn builder(scene: &str, options: &Options) -> String {
     let width = if scene == "core" {
         (options.width / 16).max(1) as usize
     } else {
-        to_units(options.width.clamp(120, 1200), options.font_size).max(1)
+        to_units(options.width.clamp(32, 1200), options.font_size).max(1)
     };
     let mut code = if options.kern && scene != "core" {
         format!("let kern = [FontFeature::new(*b\"kern\", 1)];\nTextFlow::new(text, {width})")
@@ -466,7 +468,7 @@ fn layout(scene: &str, text: &str, options: &Options) -> Result<Data, Failure> {
         _ => &simple,
     };
     let font_size = options.font_size.clamp(12, 96);
-    let max_width = to_units(options.width.clamp(120, 1200), font_size).max(1);
+    let max_width = to_units(options.width.clamp(32, 1200), font_size).max(1);
     let line_widths: [usize; 64] = core::array::from_fn(|index| {
         if scene == "geometry" {
             max_width.saturating_mul(100 - (index % 4) * 12) / 100
@@ -521,30 +523,54 @@ fn layout(scene: &str, text: &str, options: &Options) -> Result<Data, Failure> {
             Some(workspace.resident_bytes()),
             output_bytes,
             None,
+            None,
         )));
     }
     let mut scratch = LayoutScratch::<64, 512, 64, 1024>::new();
     let result = flow
         .layout_with_scratch(&faces, &mut scratch)
         .map_err(|error| fail("Layout", error))?;
-    let frames = if scene == "geometry" {
-        let baselines: Vec<_> = result
-            .lines()
-            .iter()
-            .enumerate()
-            .map(|(index, _)| {
-                let y = (index as i32 * 1600) + 800;
-                LineBaseline::new(
-                    FlowPoint { x: 0, y },
-                    FlowPoint {
-                        x: max_width as i32 + 1200,
-                        y: y + if index % 2 == 0 { 200 } else { -200 },
-                    },
-                )
-            })
-            .collect::<Result<_, _>>()
-            .map_err(|error| fail("Baseline", error))?;
-        let operation = result.place_on(&baselines);
+    let baselines: Option<Vec<LineBaseline>> = if scene == "geometry" {
+        Some(
+            result
+                .lines()
+                .iter()
+                .enumerate()
+                .map(|(index, line)| {
+                    let y = (index as i32 * 1600) + 800;
+                    let glyphs = line.glyphs();
+                    let carets = line.carets();
+                    let glyph_extent = result.glyphs()[glyphs.start as usize..glyphs.end as usize]
+                        .iter()
+                        .map(|glyph| glyph.origin.x.saturating_add(glyph.advance.x / 2))
+                        .max()
+                        .unwrap_or(0);
+                    let caret_extent = result.carets()[carets.start as usize..carets.end as usize]
+                        .iter()
+                        .map(|caret| caret.position.x)
+                        .max()
+                        .unwrap_or(0);
+                    let extent = (max_width as i32)
+                        .max(line.advance())
+                        .max(glyph_extent)
+                        .max(caret_extent)
+                        .saturating_add(1200);
+                    LineBaseline::new(
+                        FlowPoint { x: 0, y },
+                        FlowPoint {
+                            x: extent,
+                            y: y + if index % 2 == 0 { 200 } else { -200 },
+                        },
+                    )
+                })
+                .collect::<Result<_, _>>()
+                .map_err(|error| fail("Baseline", error))?,
+        )
+    } else {
+        None
+    };
+    let frames = if let Some(baselines) = &baselines {
+        let operation = result.place_on(baselines);
         let required = operation
             .preflight()
             .map_err(|error| fail("Baseline", error))?;
@@ -564,6 +590,7 @@ fn layout(scene: &str, text: &str, options: &Options) -> Result<Data, Failure> {
         None,
         output_bytes,
         frames.as_deref(),
+        baselines.as_deref(),
     )))
 }
 
@@ -574,6 +601,7 @@ fn view(
     private_bytes: Option<usize>,
     output_bytes: usize,
     frames: Option<&[GlyphFrame]>,
+    baselines: Option<&[LineBaseline]>,
 ) -> LayoutView {
     LayoutView {
         lines: layout
@@ -597,6 +625,16 @@ fn view(
                 }
             })
             .collect(),
+        baselines: baselines.map(|baselines| {
+            baselines
+                .iter()
+                .map(|baseline| {
+                    let start = baseline.start();
+                    let end = baseline.end();
+                    [[start.x, start.y], [end.x, end.y]]
+                })
+                .collect()
+        }),
         glyphs: layout
             .glyphs()
             .iter()

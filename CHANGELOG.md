@@ -7,6 +7,10 @@
 - A browser Playground runs the TextFlow WebAssembly engine with interactive layout, script, memory, and baseline scenes.
 - Feature-aware example scaffolding and a source-derived API atlas accompany the Playground.
 
+### Fixed
+
+- Narrow CJK text wraps in the Playground, and baseline guides follow the placement geometry.
+
 ## [0.3.0] - 2026-09-13
 
 ### Added

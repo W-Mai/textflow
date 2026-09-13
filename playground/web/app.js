@@ -23,7 +23,7 @@ const state = {
 };
 
 const controls = [
-  {key: "width", label: "Viewport width", type: "range", min: 160, max: 820, step: 10},
+  {key: "width", label: "Viewport width", type: "range", min: 32, max: 800, step: 16},
   {key: "fontSize", label: "Font size", type: "range", min: 16, max: 64, step: 1, needs: "shaping"},
   {key: "lineHeight", label: "Line height", type: "range", min: 20, max: 88, step: 1, needs: "shaping"},
   {key: "lineSpacing", label: "Line spacing", type: "range", min: 0, max: 32, step: 1, needs: "shaping"},

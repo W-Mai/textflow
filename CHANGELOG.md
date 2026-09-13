@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-13
+
 ### Added
 
 - Borrowed per-line width providers constrain wrapping, alignment, justification, and ellipsis without allocating an intermediate width table.
@@ -62,7 +64,8 @@
 - Optional reusable `alloc` workspace with fixed admission limits.
 - Explicit capacity, font access, and unsupported-text errors.
 
-[Unreleased]: https://github.com/W-Mai/textflow/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/W-Mai/textflow/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/W-Mai/textflow/compare/v0.2.4...v0.3.0
 [0.2.4]: https://github.com/W-Mai/textflow/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/W-Mai/textflow/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/W-Mai/textflow/compare/v0.2.1...v0.2.2

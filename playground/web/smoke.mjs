@@ -5,6 +5,7 @@ import {Stage, containsHitbox, stageSummary} from "./stage.js";
 import {rustTokens} from "./rust-highlight.js";
 import {ODYSSEY_TEXT, ODYSSEY_VERSE, samplePath} from "./baseline-examples.js";
 import {formatBaselinePoints} from "./baseline-code.js";
+import {buildTiles, glyphTarget, revealPulse, stepGlyph} from "./atmosphere.js";
 
 const page = readFileSync(new URL("./index.html", import.meta.url), "utf8");
 if (page.indexOf('id="baseline-examples"') < 0
@@ -13,10 +14,49 @@ if (page.indexOf('id="baseline-examples"') < 0
   || (page.match(/class="example-logo /g) ?? []).length !== 2) {
   throw new Error("Baseline example buttons are missing above the Rust API");
 }
-const atmosphere = page.match(/<svg class="atmosphere"[\s\S]*?<\/svg>/)?.[0];
+const atmosphere = page.match(/<canvas class="atmosphere"[^>]*><\/canvas>/)?.[0];
 if (!atmosphere?.includes('aria-hidden="true"')
   || page.indexOf(atmosphere) > page.indexOf("<header class=\"site-header\"")) {
-  throw new Error("Atmospheric text is not a page-level background");
+  throw new Error("Interactive typography is not a page-level canvas");
+}
+const overlayStyle = readFileSync(new URL("./terminal.css", import.meta.url), "utf8")
+  .match(/\.atmosphere\s*\{([^}]+)\}/)?.[1];
+if (!overlayStyle?.includes("z-index: 0") || !overlayStyle.includes("pointer-events: none")) {
+  throw new Error("Atmospheric text is not behind the page content");
+}
+const effectSource = readFileSync(new URL("./atmosphere.js", import.meta.url), "utf8");
+if (/textPath|flowPath|bezierCurve|quadraticCurve|\.arc\(/.test(effectSource)
+  || /textPath|rights-path/.test(page)) {
+  throw new Error("Curved text returned to the page effect");
+}
+for (const [width, height] of [[320, 640], [1280, 720], [2560, 1440]]) {
+  const tiles = buildTiles(width, height);
+  if (tiles.length < width * height / (180 * 74)
+    || !tiles.some((tile) => tile.x < 0) || !tiles.some((tile) => tile.x > width)
+    || !tiles.some((tile) => tile.y < 0) || !tiles.some((tile) => tile.y > height)
+    || tiles.some((tile) => !tile.text || !Number.isFinite(tile.x) || !Number.isFinite(tile.y))) {
+    throw new Error("Interactive typography does not cover the viewport");
+  }
+  const tile = tiles.find((candidate) => candidate.x > 0 && candidate.x < width) ?? tiles[0];
+  const glyph = {centerX: tile.x, centerY: tile.y, index: tile.index, dx: 0, dy: 0, vx: 0, vy: 0};
+  const near = glyphTarget(glyph, {x: glyph.centerX, y: glyph.centerY, strength: 1});
+  const far = glyphTarget(glyph, {x: glyph.centerX + 400, y: glyph.centerY, strength: 1});
+  const idle = glyphTarget(glyph, {x: glyph.centerX, y: glyph.centerY, strength: 0});
+  if (near.proximity !== 1 || far.proximity !== 0 || idle.x !== 0 || idle.y !== 0
+    || Math.hypot(near.x, near.y) > 96 || Math.hypot(near.x, near.y) < 10) {
+    throw new Error("Typography glyphs no longer retreat within their motion budget");
+  }
+  for (let step = 0; step < 20; step++) stepGlyph(glyph, near);
+  if (Math.hypot(glyph.dx, glyph.dy) < 25) {
+    throw new Error("The pointer does not push individual glyphs");
+  }
+  for (let step = 0; step < 100; step++) stepGlyph(glyph, idle);
+  if (glyph.dx !== 0 || glyph.dy !== 0) {
+    throw new Error("Pushed glyphs do not return to their original positions");
+  }
+}
+if (revealPulse(0) !== 0 || revealPulse(16) !== 1 || revealPulse(23) !== 0) {
+  throw new Error("Typography highlight changed its bounded cycle");
 }
 
 const pointCode = formatBaselinePoints([[12, -8], [80, 24]]);

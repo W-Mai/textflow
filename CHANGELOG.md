@@ -12,6 +12,7 @@
 - The Playground carries multilingual text on gently evolving curves and highlights the Baselines scene.
 - The Baselines scene smooths drawn paths, animates glyph placement, and exposes path and text controls.
 - Baseline curves can be copied as static Rust `FlowPoint` slices.
+- A typographic field behind the page content lets the pointer displace individual multilingual glyphs with spring return.
 
 ### Fixed
 

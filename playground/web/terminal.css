@@ -107,7 +107,7 @@
 body { background: var(--bg); color: var(--text); }
 ::selection { background: var(--selected); color: var(--text); }
 .page-glow { display: none; }
-.site-header { border-bottom-color: var(--line); }
+.site-header { background: var(--bg); border-bottom-color: var(--line); }
 .header-right { gap: 16px; color: var(--muted); }
 .header-right a:hover { color: var(--rust); }
 .header-right a span { color: var(--rust); }
@@ -202,14 +202,11 @@ body { background: var(--bg); color: var(--text); }
   inset: 0;
   width: 100vw;
   height: 100vh;
-  z-index: 2;
-  opacity: .07;
+  z-index: 0;
   pointer-events: none;
+  user-select: none;
 }
-.atmosphere text { font: 9px ui-sans-serif, system-ui, sans-serif; letter-spacing: .035em; }
-.atmosphere .language-0 { fill: var(--rust); }
-.atmosphere .language-1 { fill: var(--muted); }
-.atmosphere .language-2 { fill: var(--mint); }
+.site-footer { position: relative; z-index: 1; background: var(--bg); }
 .surface { background: var(--panel); border-color: var(--line); }
 .surface-head { color: var(--muted); border-bottom-color: var(--line-soft); }
 .head-dot { background: var(--rust); }

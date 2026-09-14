@@ -13,6 +13,6 @@ The core crate remains independent of the playground crate. The browser runs nin
 
 The Baselines scene supports up to 512 hand-drawn anchors, smooths the path, and samples animated glyph placement along it. The yuuu example samples the complete portrait curve at 1024 intervals and repeats Homer's Greek text until it fills the route. Buttons above the Rust API switch examples while preserving each text and path. Font size is measured in canvas pixels in both examples; curve fitting does not rescale glyphs. Spacing, alignment, overflow, smoothing, and motion are adjustable. `COPY POINTS` exports the smoothed baseline as a static Rust `FlowPoint` slice without animation displacement.
 
-Scaffold examples depend on the released `textflow-rs` crate version selected at site build time. The page background carries small multilingual text on gently changing paths; the paths themselves are not drawn.
+Scaffold examples depend on the released `textflow-rs` crate version selected at site build time. A typographic field behind the page content arranges Chinese, English, and Japanese fragments in straight rows. The pointer pushes individual glyphs aside; they spring back after it moves away. Reduced-motion settings keep the field still.
 
 `tools/check-playground.sh` runs the root crate, extractor, scaffold compile matrix, WebAssembly smoke test, and JavaScript syntax checks.

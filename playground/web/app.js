@@ -4,6 +4,7 @@ import { DocsView } from "./docs.js";
 import { renderRust } from "./rust-highlight.js";
 import { loadPortrait, ODYSSEY_SOURCE, ODYSSEY_TEXT } from "./baseline-examples.js";
 import { formatBaselinePoints } from "./baseline-code.js";
+import { buildTiles, glyphTarget, revealPulse, stepGlyph } from "./atmosphere.js";
 
 const $ = (id) => document.getElementById(id);
 const state = {
@@ -112,73 +113,138 @@ let themeMode = "auto";
 
 function startAtmosphere() {
   const surface = document.querySelector(".atmosphere");
-  const phrases = [
-    "人人生而自由，在尊严和权利上一律平等。",
-    "All human beings are born free and equal in dignity and rights.",
-    "すべての人間は、生まれながらにして自由であり、かつ、尊厳と権利とについて平等である。",
-  ];
-  const svg = (name) => document.createElementNS("http://www.w3.org/2000/svg", name);
-  let paths = [];
-  let heights = [];
+  const ctx = surface.getContext("2d");
+  let tiles = [];
+  let colors = [];
   let width = 0;
+  let height = 0;
   let frame = 0;
   let last = 0;
   let visible = false;
+  const target = {x: 0, y: 0, strength: 0};
+  const pointer = {x: 0, y: 0, strength: 0};
   const build = () => {
     width = Math.max(1, window.innerWidth);
-    const height = Math.max(1, window.innerHeight);
-    const count = Math.ceil(height / 86) + 1;
-    const defs = svg("defs");
-    const rows = [];
-    paths = [];
-    heights = [];
-    surface.setAttribute("viewBox", `0 0 ${width} ${height}`);
-    for (let index = 0; index < count; index++) {
-      const phrase = phrases[index % phrases.length];
-      const path = svg("path");
-      path.id = `rights-path-${index}`;
-      defs.append(path);
-      const textPath = svg("textPath");
-      textPath.setAttribute("href", `#${path.id}`);
-      textPath.textContent = `${phrase}  `.repeat(Math.ceil((width + 200) / (phrase.length * 7)) + 2);
-      const row = svg("text");
-      row.classList.add(`language-${index % phrases.length}`);
-      row.append(textPath);
-      rows.push(row);
-      paths.push(path);
-      heights.push((index + .45) * height / count);
-    }
-    surface.replaceChildren(defs, ...rows);
-  };
-  const draw = (time) => {
-    paths.forEach((path, index) => {
-      const y = heights[index];
-      const wave = (step, depth) => Number((depth * Math.sin(time * .00012 + index * 1.7 + step)).toFixed(1));
-      path.setAttribute("d", `M-100 ${y + wave(0, 4)} C${width * .25} ${y + wave(.6, 12)} ${width * .45} ${y + wave(1.4, 12)} ${width * .65} ${y + wave(2.2, 5)} S${width * .9} ${y + wave(3.2, 12)} ${width + 100} ${y + wave(4, 5)}`);
+    height = Math.max(1, window.innerHeight);
+    const ratio = Math.min(2, window.devicePixelRatio || 1);
+    surface.width = Math.round(width * ratio);
+    surface.height = Math.round(height * ratio);
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    ctx.font = "700 10px ui-monospace, SFMono-Regular, Consolas, monospace";
+    const widths = new Map();
+    tiles = buildTiles(width, height).map((tile) => {
+      let x = tile.x;
+      const glyphs = Array.from(tile.text, (text, index) => {
+        if (!widths.has(text)) widths.set(text, ctx.measureText(text).width);
+        const advance = widths.get(text);
+        const glyph = {
+          text, x, y: tile.y, centerX: x + advance / 2, centerY: tile.y - 4,
+          index: tile.index + index, dx: 0, dy: 0, vx: 0, vy: 0,
+        };
+        x += advance;
+        return glyph;
+      });
+      return {...tile, glyphs};
     });
   };
+  const draw = (time) => {
+    const seconds = time / 1000;
+    const pulse = revealPulse(seconds);
+    const sweepX = -180 + (width + 360) * (seconds % 31 / 31);
+    const focusX = pointer.strength * pointer.x + (1 - pointer.strength) * sweepX;
+    const focusY = pointer.strength * pointer.y + (1 - pointer.strength) * height / 2;
+    ctx.clearRect(0, 0, width, height);
+    ctx.font = "700 10px ui-monospace, SFMono-Regular, Consolas, monospace";
+    ctx.textBaseline = "alphabetic";
+    if (pointer.strength > .01 || pulse > .01) {
+      const light = ctx.createRadialGradient(focusX, focusY, 0, focusX, focusY, 260);
+      light.addColorStop(0, colors[1]);
+      light.addColorStop(1, "transparent");
+      ctx.globalAlpha = .11 * pointer.strength + .025 * pulse;
+      ctx.fillStyle = light;
+      ctx.fillRect(focusX - 260, focusY - 260, 520, 520);
+    }
+    for (const tile of tiles) {
+      let moving = false;
+      let proximity = 0;
+      for (const glyph of tile.glyphs) {
+        const desired = glyphTarget(glyph, pointer);
+        moving = stepGlyph(glyph, desired) || moving;
+        proximity = Math.max(proximity, desired.proximity);
+      }
+      const scan = pulse * Math.max(0, 1 - Math.abs(tile.x - sweepX) / 280);
+      ctx.globalAlpha = Math.min(.76, .19 + .12 * scan + .5 * proximity);
+      ctx.fillStyle = colors[tile.tone];
+      if (moving) {
+        for (const glyph of tile.glyphs) {
+          ctx.fillText(glyph.text, glyph.x + glyph.dx, glyph.y + glyph.dy);
+        }
+      } else {
+        ctx.fillText(tile.text, tile.x, tile.y);
+      }
+    }
+  };
+  const refreshPalette = () => {
+    const style = getComputedStyle(document.documentElement);
+    colors = ["--muted", "--rust", "--mint"].map((token) => style.getPropertyValue(token).trim());
+    draw(reducedMotion.matches ? 0 : performance.now());
+  };
   const tick = (time) => {
-    if (time - last >= 33) { draw(time); last = time; }
+    if (time - last >= 1000 / 24) {
+      pointer.x += (target.x - pointer.x) * .14;
+      pointer.y += (target.y - pointer.y) * .14;
+      pointer.strength += (target.strength - pointer.strength) * .12;
+      draw(time);
+      last = time;
+    }
     frame = requestAnimationFrame(tick);
   };
   const sync = () => {
     cancelAnimationFrame(frame);
     frame = 0;
+    if (reducedMotion.matches) {
+      pointer.strength = 0;
+      target.strength = 0;
+      for (const tile of tiles) {
+        for (const glyph of tile.glyphs) {
+          glyph.dx = glyph.dy = glyph.vx = glyph.vy = 0;
+        }
+      }
+    }
     draw(reducedMotion.matches ? 0 : performance.now());
     if (!reducedMotion.matches && !document.hidden && visible) frame = requestAnimationFrame(tick);
   };
+  window.addEventListener("pointermove", (event) => {
+    if (event.pointerType === "touch" || reducedMotion.matches) return;
+    target.x = event.clientX;
+    target.y = event.clientY;
+    target.strength = 1;
+  }, {passive: true});
+  window.addEventListener("pointerout", (event) => {
+    if (!event.relatedTarget) target.strength = 0;
+  });
+  window.addEventListener("blur", () => { target.strength = 0; });
   document.addEventListener("visibilitychange", sync);
   reducedMotion.addEventListener("change", sync);
-  window.addEventListener("resize", () => { build(); sync(); });
+  window.addEventListener("resize", () => {
+    target.x = pointer.x = window.innerWidth / 2;
+    target.y = pointer.y = window.innerHeight / 2;
+    build();
+    sync();
+  });
   new IntersectionObserver(([entry]) => {
     visible = entry.isIntersecting;
     sync();
   }).observe(surface);
+  target.x = pointer.x = window.innerWidth / 2;
+  target.y = pointer.y = window.innerHeight / 2;
   build();
+  refreshPalette();
   sync();
+  return refreshPalette;
 }
 
-startAtmosphere();
+const refreshAtmosphereTheme = startAtmosphere();
 
 let baselineFrame = 0;
 let baselineTime = 0;
@@ -226,6 +292,7 @@ function applyTheme() {
   button.textContent = themeMode.toUpperCase();
   button.setAttribute("aria-label", `Color theme: ${themeMode}. Click to change`);
   document.querySelector('meta[name="theme-color"]').content = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+  refreshAtmosphereTheme();
   stage.redraw();
 }
 

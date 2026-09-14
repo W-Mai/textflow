@@ -1,0 +1,795 @@
+{
+  "schema": 1,
+  "sourceHash": "ca570bbe5e191486585d16282c488effb428156f4d7e655e01808c292048d76c",
+  "crateVersion": "0.3.1",
+  "toolchain": {
+    "rustc": "rustc 1.95.0-nightly (57d2fb136 2026-02-01)",
+    "binaryen": "wasm-opt version 130",
+    "target": "wasm32-unknown-unknown",
+    "optimization": "opt-level=z, lto=true, panic=abort",
+    "meter": "Binaryen --log-execution callback events"
+  },
+  "profiles": {
+    "alloc,bidi,complex-shaping,script-arabic,script-devanagari,script-thai,shaping,unicode": {
+      "features": [
+        "alloc",
+        "bidi",
+        "complex-shaping",
+        "script-arabic",
+        "script-devanagari",
+        "script-thai",
+        "shaping",
+        "unicode"
+      ],
+      "wasmBytes": 108649,
+      "initialPages": 18,
+      "work": {
+        "core": {
+          "inputChars": 87,
+          "meteredOperations": 8184
+        },
+        "unicode": {
+          "inputChars": 87,
+          "meteredOperations": 7390
+        },
+        "bidi": {
+          "inputChars": 19,
+          "meteredOperations": 449
+        },
+        "shaping": {
+          "inputChars": 87,
+          "meteredOperations": 29239
+        },
+        "workspace": {
+          "inputChars": 87,
+          "meteredOperations": 118463
+        },
+        "complex-shaping": {
+          "inputChars": 87,
+          "meteredOperations": 31470
+        },
+        "arabic": {
+          "inputChars": 13,
+          "meteredOperations": 5764
+        },
+        "thai": {
+          "inputChars": 7,
+          "meteredOperations": 2402
+        },
+        "devanagari": {
+          "inputChars": 13,
+          "meteredOperations": 3915
+        }
+      }
+    },
+    "alloc,bidi,complex-shaping,script-arabic,script-devanagari,shaping,unicode": {
+      "features": [
+        "alloc",
+        "bidi",
+        "complex-shaping",
+        "script-arabic",
+        "script-devanagari",
+        "shaping",
+        "unicode"
+      ],
+      "wasmBytes": 107107,
+      "initialPages": 18,
+      "work": {
+        "core": {
+          "inputChars": 87,
+          "meteredOperations": 8184
+        },
+        "unicode": {
+          "inputChars": 87,
+          "meteredOperations": 7390
+        },
+        "bidi": {
+          "inputChars": 19,
+          "meteredOperations": 449
+        },
+        "shaping": {
+          "inputChars": 87,
+          "meteredOperations": 29239
+        },
+        "workspace": {
+          "inputChars": 87,
+          "meteredOperations": 118463
+        },
+        "complex-shaping": {
+          "inputChars": 87,
+          "meteredOperations": 31470
+        },
+        "arabic": {
+          "inputChars": 13,
+          "meteredOperations": 5764
+        },
+        "devanagari": {
+          "inputChars": 13,
+          "meteredOperations": 3915
+        }
+      }
+    },
+    "alloc,bidi,complex-shaping,script-arabic,script-thai,shaping,unicode": {
+      "features": [
+        "alloc",
+        "bidi",
+        "complex-shaping",
+        "script-arabic",
+        "script-thai",
+        "shaping",
+        "unicode"
+      ],
+      "wasmBytes": 103026,
+      "initialPages": 18,
+      "work": {
+        "core": {
+          "inputChars": 87,
+          "meteredOperations": 8184
+        },
+        "unicode": {
+          "inputChars": 87,
+          "meteredOperations": 7390
+        },
+        "bidi": {
+          "inputChars": 19,
+          "meteredOperations": 449
+        },
+        "shaping": {
+          "inputChars": 87,
+          "meteredOperations": 29239
+        },
+        "workspace": {
+          "inputChars": 87,
+          "meteredOperations": 118463
+        },
+        "complex-shaping": {
+          "inputChars": 87,
+          "meteredOperations": 31470
+        },
+        "arabic": {
+          "inputChars": 13,
+          "meteredOperations": 5764
+        },
+        "thai": {
+          "inputChars": 7,
+          "meteredOperations": 2402
+        }
+      }
+    },
+    "alloc,bidi,complex-shaping,script-arabic,shaping,unicode": {
+      "features": [
+        "alloc",
+        "bidi",
+        "complex-shaping",
+        "script-arabic",
+        "shaping",
+        "unicode"
+      ],
+      "wasmBytes": 101362,
+      "initialPages": 18,
+      "work": {
+        "core": {
+          "inputChars": 87,
+          "meteredOperations": 8184
+        },
+        "unicode": {
+          "inputChars": 87,
+          "meteredOperations": 7390
+        },
+        "bidi": {
+          "inputChars": 19,
+          "meteredOperations": 449
+        },
+        "shaping": {
+          "inputChars": 87,
+          "meteredOperations": 29239
+        },
+        "workspace": {
+          "inputChars": 87,
+          "meteredOperations": 118463
+        },
+        "complex-shaping": {
+          "inputChars": 87,
+          "meteredOperations": 31470
+        },
+        "arabic": {
+          "inputChars": 13,
+          "meteredOperations": 5760
+        }
+      }
+    },
+    "alloc,bidi,complex-shaping,script-devanagari,script-thai,shaping,unicode": {
+      "features": [
+        "alloc",
+        "bidi",
+        "complex-shaping",
+        "script-devanagari",
+        "script-thai",
+        "shaping",
+        "unicode"
+      ],
+      "wasmBytes": 105068,
+      "initialPages": 18,
+      "work": {
+        "core": {
+          "inputChars": 87,
+          "meteredOperations": 8184
+        },
+        "unicode": {
+          "inputChars": 87,
+          "meteredOperations": 7390
+        },
+        "bidi": {
+          "inputChars": 19,
+          "meteredOperations": 449
+        },
+        "shaping": {
+          "inputChars": 87,
+          "meteredOperations": 29239
+        },
+        "workspace": {
+          "inputChars": 87,
+          "meteredOperations": 118463
+        },
+        "complex-shaping": {
+          "inputChars": 87,
+          "meteredOperations": 31470
+        },
+        "thai": {
+          "inputChars": 7,
+          "meteredOperations": 2402
+        },
+        "devanagari": {
+          "inputChars": 13,
+          "meteredOperations": 3891
+        }
+      }
+    },
+    "alloc,bidi,complex-shaping,script-devanagari,shaping,unicode": {
+      "features": [
+        "alloc",
+        "bidi",
+        "complex-shaping",
+        "script-devanagari",
+        "shaping",
+        "unicode"
+      ],
+      "wasmBytes": 103420,
+      "initialPages": 18,
+      "work": {
+        "core": {
+          "inputChars": 87,
+          "meteredOperations": 8184
+        },
+        "unicode": {
+          "inputChars": 87,
+          "meteredOperations": 7390
+        },
+        "bidi": {
+          "inputChars": 19,
+          "meteredOperations": 449
+        },
+        "shaping": {
+          "inputChars": 87,
+          "meteredOperations": 29239
+        },
+        "workspace": {
+          "inputChars": 87,
+          "meteredOperations": 118463
+        },
+        "complex-shaping": {
+          "inputChars": 87,
+          "meteredOperations": 31470
+        },
+        "devanagari": {
+          "inputChars": 13,
+          "meteredOperations": 3903
+        }
+      }
+    },
+    "alloc,bidi,complex-shaping,script-thai,shaping,unicode": {
+      "features": [
+        "alloc",
+        "bidi",
+        "complex-shaping",
+        "script-thai",
+        "shaping",
+        "unicode"
+      ],
+      "wasmBytes": 99010,
+      "initialPages": 18,
+      "work": {
+        "core": {
+          "inputChars": 87,
+          "meteredOperations": 7956
+        },
+        "unicode": {
+          "inputChars": 87,
+          "meteredOperations": 7042
+        },
+        "bidi": {
+          "inputChars": 19,
+          "meteredOperations": 449
+        },
+        "shaping": {
+          "inputChars": 87,
+          "meteredOperations": 28195
+        },
+        "workspace": {
+          "inputChars": 87,
+          "meteredOperations": 114477
+        },
+        "complex-shaping": {
+          "inputChars": 87,
+          "meteredOperations": 30426
+        },
+        "thai": {
+          "inputChars": 7,
+          "meteredOperations": 2330
+        }
+      }
+    },
+    "alloc,bidi,complex-shaping,shaping,unicode": {
+      "features": [
+        "alloc",
+        "bidi",
+        "complex-shaping",
+        "shaping",
+        "unicode"
+      ],
+      "wasmBytes": 96529,
+      "initialPages": 18,
+      "work": {
+        "core": {
+          "inputChars": 87,
+          "meteredOperations": 7956
+        },
+        "unicode": {
+          "inputChars": 87,
+          "meteredOperations": 7042
+        },
+        "bidi": {
+          "inputChars": 19,
+          "meteredOperations": 449
+        },
+        "shaping": {
+          "inputChars": 87,
+          "meteredOperations": 28195
+        },
+        "workspace": {
+          "inputChars": 87,
+          "meteredOperations": 114477
+        },
+        "complex-shaping": {
+          "inputChars": 87,
+          "meteredOperations": 30426
+        }
+      }
+    },
+    "alloc,bidi,shaping,unicode": {
+      "features": [
+        "alloc",
+        "bidi",
+        "shaping",
+        "unicode"
+      ],
+      "wasmBytes": 90649,
+      "initialPages": 18,
+      "work": {
+        "core": {
+          "inputChars": 87,
+          "meteredOperations": 7956
+        },
+        "unicode": {
+          "inputChars": 87,
+          "meteredOperations": 7042
+        },
+        "bidi": {
+          "inputChars": 19,
+          "meteredOperations": 449
+        },
+        "shaping": {
+          "inputChars": 87,
+          "meteredOperations": 28123
+        },
+        "workspace": {
+          "inputChars": 87,
+          "meteredOperations": 114340
+        }
+      }
+    },
+    "base": {
+      "features": [],
+      "wasmBytes": 18087,
+      "initialPages": 17,
+      "work": {
+        "core": {
+          "inputChars": 87,
+          "meteredOperations": 6769
+        }
+      }
+    },
+    "bidi,complex-shaping,script-arabic,script-devanagari,script-thai,shaping,unicode": {
+      "features": [
+        "bidi",
+        "complex-shaping",
+        "script-arabic",
+        "script-devanagari",
+        "script-thai",
+        "shaping",
+        "unicode"
+      ],
+      "wasmBytes": 90783,
+      "initialPages": 17,
+      "work": {
+        "core": {
+          "inputChars": 87,
+          "meteredOperations": 8184
+        },
+        "unicode": {
+          "inputChars": 87,
+          "meteredOperations": 7390
+        },
+        "bidi": {
+          "inputChars": 19,
+          "meteredOperations": 449
+        },
+        "shaping": {
+          "inputChars": 87,
+          "meteredOperations": 29232
+        },
+        "complex-shaping": {
+          "inputChars": 87,
+          "meteredOperations": 31463
+        },
+        "arabic": {
+          "inputChars": 13,
+          "meteredOperations": 5759
+        },
+        "thai": {
+          "inputChars": 7,
+          "meteredOperations": 2391
+        },
+        "devanagari": {
+          "inputChars": 13,
+          "meteredOperations": 3896
+        }
+      }
+    },
+    "bidi,complex-shaping,script-arabic,script-devanagari,shaping,unicode": {
+      "features": [
+        "bidi",
+        "complex-shaping",
+        "script-arabic",
+        "script-devanagari",
+        "shaping",
+        "unicode"
+      ],
+      "wasmBytes": 89234,
+      "initialPages": 17,
+      "work": {
+        "core": {
+          "inputChars": 87,
+          "meteredOperations": 8184
+        },
+        "unicode": {
+          "inputChars": 87,
+          "meteredOperations": 7390
+        },
+        "bidi": {
+          "inputChars": 19,
+          "meteredOperations": 449
+        },
+        "shaping": {
+          "inputChars": 87,
+          "meteredOperations": 29232
+        },
+        "complex-shaping": {
+          "inputChars": 87,
+          "meteredOperations": 31463
+        },
+        "arabic": {
+          "inputChars": 13,
+          "meteredOperations": 5759
+        },
+        "devanagari": {
+          "inputChars": 13,
+          "meteredOperations": 3896
+        }
+      }
+    },
+    "bidi,complex-shaping,script-arabic,script-thai,shaping,unicode": {
+      "features": [
+        "bidi",
+        "complex-shaping",
+        "script-arabic",
+        "script-thai",
+        "shaping",
+        "unicode"
+      ],
+      "wasmBytes": 85074,
+      "initialPages": 17,
+      "work": {
+        "core": {
+          "inputChars": 87,
+          "meteredOperations": 8184
+        },
+        "unicode": {
+          "inputChars": 87,
+          "meteredOperations": 7390
+        },
+        "bidi": {
+          "inputChars": 19,
+          "meteredOperations": 449
+        },
+        "shaping": {
+          "inputChars": 87,
+          "meteredOperations": 29232
+        },
+        "complex-shaping": {
+          "inputChars": 87,
+          "meteredOperations": 31463
+        },
+        "arabic": {
+          "inputChars": 13,
+          "meteredOperations": 5759
+        },
+        "thai": {
+          "inputChars": 7,
+          "meteredOperations": 2391
+        }
+      }
+    },
+    "bidi,complex-shaping,script-arabic,shaping,unicode": {
+      "features": [
+        "bidi",
+        "complex-shaping",
+        "script-arabic",
+        "shaping",
+        "unicode"
+      ],
+      "wasmBytes": 83474,
+      "initialPages": 17,
+      "work": {
+        "core": {
+          "inputChars": 87,
+          "meteredOperations": 8184
+        },
+        "unicode": {
+          "inputChars": 87,
+          "meteredOperations": 7390
+        },
+        "bidi": {
+          "inputChars": 19,
+          "meteredOperations": 449
+        },
+        "shaping": {
+          "inputChars": 87,
+          "meteredOperations": 29232
+        },
+        "complex-shaping": {
+          "inputChars": 87,
+          "meteredOperations": 31463
+        },
+        "arabic": {
+          "inputChars": 13,
+          "meteredOperations": 5755
+        }
+      }
+    },
+    "bidi,complex-shaping,script-devanagari,script-thai,shaping,unicode": {
+      "features": [
+        "bidi",
+        "complex-shaping",
+        "script-devanagari",
+        "script-thai",
+        "shaping",
+        "unicode"
+      ],
+      "wasmBytes": 87205,
+      "initialPages": 17,
+      "work": {
+        "core": {
+          "inputChars": 87,
+          "meteredOperations": 8184
+        },
+        "unicode": {
+          "inputChars": 87,
+          "meteredOperations": 7390
+        },
+        "bidi": {
+          "inputChars": 19,
+          "meteredOperations": 449
+        },
+        "shaping": {
+          "inputChars": 87,
+          "meteredOperations": 29232
+        },
+        "complex-shaping": {
+          "inputChars": 87,
+          "meteredOperations": 31463
+        },
+        "thai": {
+          "inputChars": 7,
+          "meteredOperations": 2391
+        },
+        "devanagari": {
+          "inputChars": 13,
+          "meteredOperations": 3880
+        }
+      }
+    },
+    "bidi,complex-shaping,script-devanagari,shaping,unicode": {
+      "features": [
+        "bidi",
+        "complex-shaping",
+        "script-devanagari",
+        "shaping",
+        "unicode"
+      ],
+      "wasmBytes": 85549,
+      "initialPages": 17,
+      "work": {
+        "core": {
+          "inputChars": 87,
+          "meteredOperations": 8184
+        },
+        "unicode": {
+          "inputChars": 87,
+          "meteredOperations": 7390
+        },
+        "bidi": {
+          "inputChars": 19,
+          "meteredOperations": 449
+        },
+        "shaping": {
+          "inputChars": 87,
+          "meteredOperations": 29232
+        },
+        "complex-shaping": {
+          "inputChars": 87,
+          "meteredOperations": 31463
+        },
+        "devanagari": {
+          "inputChars": 13,
+          "meteredOperations": 3892
+        }
+      }
+    },
+    "bidi,complex-shaping,script-thai,shaping,unicode": {
+      "features": [
+        "bidi",
+        "complex-shaping",
+        "script-thai",
+        "shaping",
+        "unicode"
+      ],
+      "wasmBytes": 81060,
+      "initialPages": 17,
+      "work": {
+        "core": {
+          "inputChars": 87,
+          "meteredOperations": 7956
+        },
+        "unicode": {
+          "inputChars": 87,
+          "meteredOperations": 7042
+        },
+        "bidi": {
+          "inputChars": 19,
+          "meteredOperations": 449
+        },
+        "shaping": {
+          "inputChars": 87,
+          "meteredOperations": 28188
+        },
+        "complex-shaping": {
+          "inputChars": 87,
+          "meteredOperations": 30419
+        },
+        "thai": {
+          "inputChars": 7,
+          "meteredOperations": 2319
+        }
+      }
+    },
+    "bidi,complex-shaping,shaping,unicode": {
+      "features": [
+        "bidi",
+        "complex-shaping",
+        "shaping",
+        "unicode"
+      ],
+      "wasmBytes": 78660,
+      "initialPages": 17,
+      "work": {
+        "core": {
+          "inputChars": 87,
+          "meteredOperations": 7956
+        },
+        "unicode": {
+          "inputChars": 87,
+          "meteredOperations": 7042
+        },
+        "bidi": {
+          "inputChars": 19,
+          "meteredOperations": 449
+        },
+        "shaping": {
+          "inputChars": 87,
+          "meteredOperations": 28188
+        },
+        "complex-shaping": {
+          "inputChars": 87,
+          "meteredOperations": 30419
+        }
+      }
+    },
+    "bidi,shaping,unicode": {
+      "features": [
+        "bidi",
+        "shaping",
+        "unicode"
+      ],
+      "wasmBytes": 73098,
+      "initialPages": 17,
+      "work": {
+        "core": {
+          "inputChars": 87,
+          "meteredOperations": 7956
+        },
+        "unicode": {
+          "inputChars": 87,
+          "meteredOperations": 7042
+        },
+        "bidi": {
+          "inputChars": 19,
+          "meteredOperations": 449
+        },
+        "shaping": {
+          "inputChars": 87,
+          "meteredOperations": 28116
+        }
+      }
+    },
+    "bidi,unicode": {
+      "features": [
+        "bidi",
+        "unicode"
+      ],
+      "wasmBytes": 26738,
+      "initialPages": 17,
+      "work": {
+        "core": {
+          "inputChars": 87,
+          "meteredOperations": 7405
+        },
+        "unicode": {
+          "inputChars": 87,
+          "meteredOperations": 6688
+        },
+        "bidi": {
+          "inputChars": 19,
+          "meteredOperations": 427
+        }
+      }
+    },
+    "unicode": {
+      "features": [
+        "unicode"
+      ],
+      "wasmBytes": 19800,
+      "initialPages": 17,
+      "work": {
+        "core": {
+          "inputChars": 87,
+          "meteredOperations": 7405
+        },
+        "unicode": {
+          "inputChars": 87,
+          "meteredOperations": 6514
+        }
+      }
+    }
+  }
+}

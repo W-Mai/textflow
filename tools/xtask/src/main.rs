@@ -34,6 +34,7 @@ fn prepare(root: &Path) -> Result<(), String> {
         ],
         root,
     )?;
+    run("node", &["tools/budget.mjs", "--check"], root)?;
     run(
         "wasm-pack",
         &[
@@ -84,6 +85,17 @@ fn main() -> Result<(), String> {
             )
         }
         "check" => run("bash", &["tools/check-playground.sh"], &root),
-        _ => Err("Usage: cargo xtask [build|serve|check]".into()),
+        "budget" => {
+            let option = args.next();
+            if args.next().is_some() || option.as_deref().is_some_and(|value| value != "--check") {
+                return Err("Usage: cargo xtask budget [--check]".into());
+            }
+            let mut arguments = vec!["tools/budget.mjs"];
+            if option.is_some() {
+                arguments.push("--check");
+            }
+            run("node", &arguments, &root)
+        }
+        _ => Err("Usage: cargo xtask [build|serve|check|budget]".into()),
     }
 }

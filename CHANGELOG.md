@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- A Playground budget panel reports feature-specific reference WASM sizes, memory capacities, metered work, and browser-measured throughput.
+
 ### Fixed
 
 - Overlong RTL lines retain their logical start at the right viewport edge when clipped; unexpanded justified lines also honor that edge.

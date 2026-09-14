@@ -1,0 +1,30 @@
+[package]
+name = "textflow-budget-probe"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+default = []
+unicode = ["textflow-rs/unicode"]
+bidi = ["textflow-rs/bidi", "unicode"]
+shaping = ["textflow-rs/shaping", "bidi"]
+complex-shaping = ["textflow-rs/complex-shaping", "shaping"]
+alloc = ["textflow-rs/alloc", "shaping"]
+script-arabic = ["textflow-rs/script-arabic", "complex-shaping"]
+script-thai = ["textflow-rs/script-thai", "complex-shaping"]
+script-devanagari = ["textflow-rs/script-devanagari", "complex-shaping"]
+
+[dependencies]
+textflow-rs = { path = "../..", default-features = false }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"

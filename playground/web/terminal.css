@@ -284,6 +284,22 @@ body { background: var(--bg); color: var(--text); }
 .code-token-number, .code-token-emphasis { color: var(--violet); }
 .code-token-comment { color: var(--faint); }
 .code-token-macro, .code-token-heading, .code-token-code { color: var(--orange); }
+.budget-panel { margin-top: 14px; border: 1px solid var(--line); background: var(--panel-2); font: 10px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.budget-panel summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 34px; padding: 7px 9px; color: var(--rust); font-weight: 750; letter-spacing: .1em; cursor: pointer; list-style: none; }
+.budget-panel summary::-webkit-details-marker { display: none; }
+.budget-panel summary::before { content: "+"; color: var(--muted); font-size: 13px; }
+.budget-panel[open] summary::before { content: "−"; }
+.budget-panel summary strong { margin-left: auto; color: var(--text); font-weight: 700; letter-spacing: 0; white-space: nowrap; }
+.budget-body { border-top: 1px solid var(--line); padding: 8px 9px 10px; }
+.budget-row { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--line-soft); color: var(--muted); }
+.budget-row strong { color: var(--text); font-weight: 650; text-align: right; font-variant-numeric: tabular-nums; }
+.budget-impact { margin: 2px 0 5px; padding: 3px 7px; border-left: 1px solid var(--rust); color: var(--faint); }
+.budget-impact:empty { display: none; }
+.budget-impact div { display: flex; justify-content: space-between; gap: 6px; }
+.budget-measure { width: 100%; margin-top: 9px; border: 1px solid var(--rust); background: transparent; color: var(--rust); padding: 6px; font: 700 9px ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .03em; }
+.budget-measure:hover:not(:disabled) { background: var(--selected); }
+.budget-measure:disabled { opacity: .48; cursor: default; }
+.budget-note { margin: 8px 0 0; color: var(--faint); font-size: 9px; line-height: 1.4; }
 .action-button { background: var(--selected); border-color: var(--rust); color: var(--text); }
 .action-button:hover { filter: none; background: var(--hover); }
 .file-layout nav button.is-active, .file-layout nav button:hover,

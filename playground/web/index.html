@@ -19,6 +19,7 @@
   <link data-trunk rel="copy-file" href="stage.js">
   <link data-trunk rel="copy-file" href="docs.js">
   <link data-trunk rel="copy-file" href="code-highlight.js">
+  <link data-trunk rel="copy-file" href="budget.js">
   <link data-trunk rel="copy-file" href="baseline-examples.js">
   <link data-trunk rel="copy-file" href="baseline-code.js">
   <link data-trunk rel="copy-file" href="atmosphere.js">
@@ -56,6 +57,22 @@
           <code id="add-command">cargo add textflow-rs</code>
           <button id="copy-command" type="button" class="icon-button" aria-label="Copy command">↗</button>
         </div>
+        <details class="budget-panel" id="budget-panel" open>
+          <summary><span>WASM BUDGET</span><strong id="budget-summary">—</strong></summary>
+          <div class="budget-body">
+            <div class="budget-row"><span>vs. base</span><strong id="budget-binary">—</strong></div>
+            <div class="budget-impact" id="budget-impact"></div>
+            <div class="budget-row"><span>Ref. initial RAM</span><strong id="budget-initial">—</strong></div>
+            <div class="budget-row"><span>Loaded WASM RAM</span><strong id="budget-loaded">—</strong></div>
+            <div class="budget-row"><span>Input · UTF-8</span><strong id="budget-input">—</strong></div>
+            <div class="budget-row"><span>Output capacity</span><strong id="budget-output">—</strong></div>
+            <div class="budget-row"><span>Workspace resident</span><strong id="budget-private">—</strong></div>
+            <div class="budget-row"><span>Work events</span><strong id="budget-work">—</strong></div>
+            <div class="budget-row"><span>Throughput</span><strong id="budget-speed">—</strong></div>
+            <button class="budget-measure" id="budget-measure" type="button" disabled>MEASURE CURRENT TEXT ↗</button>
+            <p class="budget-note" id="budget-note">Loading reference measurements…</p>
+          </div>
+        </details>
       </aside>
 
       <div class="workbench-main">

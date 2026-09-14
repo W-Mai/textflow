@@ -2,9 +2,11 @@
 /playground/target
 /playground/Cargo.lock
 /playground/web/pkg
-/playground/web/data
+/playground/web/data/*
+!/playground/web/data/budget.json
 /playground/dist
 /tools/extract-docs/target
+/tools/budget-probe/target
 /tools/extract-docs/Cargo.lock
 /tools/xtask/target
 /tools/xtask/Cargo.lock

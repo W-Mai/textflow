@@ -2,6 +2,7 @@ import { FeatureGraph, renderFeatures } from "./features.js";
 import { Stage, VIEWPORT_WIDTH, stageSummary } from "./stage.js";
 import { DocsView } from "./docs.js";
 import { renderCode, renderRust } from "./code-highlight.js";
+import { BudgetView } from "./budget.js";
 import { loadPortrait, ODYSSEY_SOURCE, ODYSSEY_TEXT } from "./baseline-examples.js";
 import { formatBaselinePoints } from "./baseline-code.js";
 import { buildTiles, glyphTarget, revealPulse, stepGlyph } from "./atmosphere.js";
@@ -9,6 +10,8 @@ import { buildTiles, glyphTarget, revealPulse, stepGlyph } from "./atmosphere.js
 const $ = (id) => document.getElementById(id);
 const state = {
   engine: null,
+  memory: null,
+  budget: null,
   catalog: null,
   graph: null,
   scenes: [],
@@ -598,6 +601,7 @@ function refresh(motionOnly = false) {
     $("unit-label").hidden = !state.response.ok || data.kind !== "layout";
     $("inspector-count").textContent = state.response.ok ? data.kind.toUpperCase() : "ERROR";
     inspect(null);
+    state.budget?.update(state.graph, state.scene, text, options, state.response);
   }
 }
 
@@ -649,22 +653,29 @@ function switchView(name) {
 async function initialize() {
   try {
     const wasm = await import("./pkg/textflow_playground.js");
-    await wasm.default();
+    const exports = await wasm.default();
     state.engine = wasm;
+    state.memory = exports.memory;
     state.catalog = wasm.feature_catalog();
     state.graph = new FeatureGraph(state.catalog);
     state.scenes = wasm.scene_catalog();
     $("version-pill").textContent = `v${state.catalog.version}`;
     $("engine-status").hidden = true;
-    const [features, docs] = await Promise.allSettled([
+    const [features, docs, budget] = await Promise.allSettled([
       fetch("./data/features.json").then((response) => { if (!response.ok) throw new Error("features.json unavailable"); return response.json(); }),
       fetch("./data/docs.json").then((response) => { if (!response.ok) throw new Error("docs.json unavailable"); return response.json(); }),
+      fetch("./data/budget.json").then((response) => { if (!response.ok) throw new Error("budget.json unavailable"); return response.json(); }),
     ]);
     if (features.status === "fulfilled") state.descriptions = new Map(features.value.features.map((feature) => [feature.name, feature.description]));
     if (docs.status === "fulfilled") {
       state.docs = new DocsView($("docs-list"), $("docs-detail"), $("docs-search"), docs.value, state.catalog.source_rev);
     } else {
       $("docs-detail").textContent = `Documentation index unavailable: ${docs.reason}`;
+    }
+    if (budget.status === "fulfilled" && budget.value.crateVersion === state.catalog.version) {
+      state.budget = new BudgetView($("budget-panel"), budget.value, wasm, state.memory);
+    } else {
+      $("budget-note").textContent = budget.status === "fulfilled" ? "Reference measurements do not match this release." : `Reference measurements unavailable: ${budget.reason}`;
     }
     selectScene("core");
     const requestedView = new URLSearchParams(window.location.search).get("view");

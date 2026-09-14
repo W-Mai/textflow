@@ -3,6 +3,7 @@ import init, {analyze_scene, feature_catalog, scene_catalog, scaffold_files, zip
 import {FeatureGraph} from "./features.js";
 import {Stage, VIEWPORT_WIDTH, clipClusters, containsHitbox, stageSummary, viewportWidthAt} from "./stage.js";
 import {rustTokens, tomlTokens, markdownTokens} from "./code-highlight.js";
+import {BudgetView, profileKey, referenceBudget} from "./budget.js";
 import {ODYSSEY_TEXT, ODYSSEY_VERSE, samplePath} from "./baseline-examples.js";
 import {formatBaselinePoints} from "./baseline-code.js";
 import {buildTiles, glyphTarget, revealPulse, stepGlyph} from "./atmosphere.js";
@@ -319,6 +320,51 @@ if (Math.abs(rotatedStage.hitboxes[0].angle - Math.PI / 2) > 0.001) throw new Er
 await init({module_or_path: readFileSync(new URL("./pkg/textflow_playground_bg.wasm", import.meta.url))});
 const features = feature_catalog();
 const scenes = scene_catalog();
+const budget = JSON.parse(readFileSync(new URL("./data/budget.json", import.meta.url), "utf8"));
+if (budget.crateVersion !== features.version || Object.keys(budget.profiles).length !== 21) {
+  throw new Error("WASM reference budget does not match the crate feature graph");
+}
+const budgetGraph = new FeatureGraph(features);
+const names = budgetGraph.features.map((feature) => feature.name);
+for (let mask = 0; mask < 1 << names.length; mask++) {
+  const selected = names.filter((_, index) => mask & (1 << index));
+  const active = [...budgetGraph.closure(selected)].sort();
+  const profile = budget.profiles[profileKey(active)];
+  if (!profile || profile.features.join(",") !== active.join(",")
+    || profile.wasmBytes < 1024 || profile.initialPages < 1 || !profile.work.core?.meteredOperations) {
+    throw new Error(`Missing WASM budget for ${active.join(",")}`);
+  }
+}
+budgetGraph.enable("script-arabic");
+const inspected = referenceBudget(budget, budgetGraph, "arabic", "مرحبا", {
+  ok: true, data: {kind: "layout", outputBytes: 4096, privateBytes: null},
+}, {buffer: {byteLength: 1_310_720}});
+if (inspected.inputBytes !== 10 || inspected.outputBytes !== 4096
+  || inspected.loadedBytes !== 1_310_720 || inspected.impact.length !== 1
+  || inspected.impact[0].bytes == null || !inspected.work?.meteredOperations) {
+  throw new Error("WASM budget lost a live-memory or selected-feature measurement");
+}
+const sparse = referenceBudget({...budget, profiles: {base: budget.profiles.base}}, budgetGraph, "arabic", "مرحبا", null, null);
+if (sparse.profile !== undefined || sparse.loadedBytes !== null || sparse.impact[0].bytes !== null) {
+  throw new Error("Unavailable WASM reference data must remain unknown");
+}
+const cancelled = Object.create(BudgetView.prototype);
+cancelled.snapshot = {scene: "core", text: "Hello", options: {}, response: {ok: true}};
+cancelled.revision = 1;
+cancelled.measuring = false;
+cancelled.button = {disabled: false, textContent: ""};
+let measurementCalls = 0;
+cancelled.engine = {analyze_scene: () => {
+  if (++measurementCalls === 1) setTimeout(() => cancelled.revision++, 0);
+  return {ok: true};
+}};
+cancelled.update = () => {};
+globalThis.document = {hidden: false};
+await cancelled.measure();
+delete globalThis.document;
+if (measurementCalls !== 2 || cancelled.speed != null || cancelled.measuring) {
+  throw new Error("An invalidated throughput measurement must be discarded");
+}
 if (!features.features.some((feature) => feature.name === "script-devanagari")) throw new Error("Devanagari feature missing");
 const ordered = new FeatureGraph(features).features.map((feature) => feature.name);
 for (const feature of features.features) {

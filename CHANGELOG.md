@@ -4,6 +4,7 @@
 
 ### Added
 
+- Free draw opens with a tilted heart baseline drawn progressively across the canvas.
 - A Playground budget panel reports feature-specific reference WASM sizes, memory capacities, metered work, and browser-measured throughput.
 
 ### Fixed

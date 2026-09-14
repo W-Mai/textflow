@@ -126,9 +126,10 @@ export class Stage {
 
   projection(width, height, options, geometry) {
     const emScale = options.fontSize / 1000;
-    if (geometry && options.example === "yuuu" && options.pathBounds) {
+    if (geometry && options.pathBounds) {
       const [left, top, boxWidth, boxHeight] = options.pathBounds;
-      const fit = Math.min((width - 48) / boxWidth, (height - Math.min(54, height * .18)) / boxHeight);
+      const verticalMargin = options.example === "draw" ? 70 : Math.min(54, height * .18);
+      const fit = Math.min((width - 48) / boxWidth, (height - verticalMargin) / boxHeight);
       return {
         x0: (width - boxWidth * fit) / 2 - left * fit,
         y0: (height - boxHeight * fit) / 2 - top * fit,
@@ -169,7 +170,8 @@ export class Stage {
     const bounds = this.canvas.getBoundingClientRect();
     const x = Math.max(0, Math.min(bounds.width, event.clientX - bounds.left));
     const y = Math.max(0, Math.min(bounds.height, event.clientY - bounds.top));
-    const {x0, y0, fit} = this.projection(bounds.width, bounds.height, options, true);
+    const {x0, y0, fit} = this.projection(bounds.width, bounds.height,
+      this.editable ? {...options, pathBounds: null} : options, true);
     const point = [Math.max(-30_000, Math.min(30_000, Math.round((x - x0) / fit))), Math.max(-30_000, Math.min(30_000, Math.round((y - y0) / fit)))];
     const previous = this.samples.at(-1);
     if (previous && Math.hypot(point[0] - previous[0], point[1] - previous[1]) < 3) return;
@@ -304,7 +306,7 @@ export class Stage {
     ctx.restore();
   }
 
-  curve(ctx, points, projection, smooth = true) {
+  curve(ctx, points, projection, smooth = true, progress = 1) {
     if (!points.length) return;
     if (points.length === 1) {
       ctx.fillStyle = this.palette.amber;
@@ -313,14 +315,39 @@ export class Stage {
       ctx.fill();
       return;
     }
+    let remaining = Infinity;
+    if (progress < 1) {
+      remaining = 0;
+      for (let index = 1; index < points.length; index++) {
+        remaining += Math.hypot(points[index][0] - points[index - 1][0], points[index][1] - points[index - 1][1]);
+      }
+      remaining *= Math.max(0, progress);
+    }
+    const x = (point) => projection.x0 + point[0] * projection.scale;
+    const y = (point) => projection.y0 + point[1] * projection.scale;
+    let tip = points[0];
     ctx.beginPath();
-    ctx.moveTo(projection.x0 + points[0][0] * projection.scale, projection.y0 + points[0][1] * projection.scale);
+    ctx.moveTo(x(tip), y(tip));
     for (let index = 1; index < points.length; index++) {
-      ctx.lineTo(projection.x0 + points[index][0] * projection.scale, projection.y0 + points[index][1] * projection.scale);
+      const next = points[index];
+      const distance = Math.hypot(next[0] - tip[0], next[1] - tip[1]);
+      if (remaining < distance) {
+        const fraction = remaining / distance;
+        tip = [tip[0] + (next[0] - tip[0]) * fraction, tip[1] + (next[1] - tip[1]) * fraction];
+        ctx.lineTo(x(tip), y(tip));
+        break;
+      }
+      ctx.lineTo(x(next), y(next));
+      remaining -= distance;
+      tip = next;
     }
     ctx.strokeStyle = this.palette.amber;
-    ctx.lineWidth = smooth ? 2 : 1.5;
+    ctx.lineWidth = progress < 1 ? 2.5 : smooth ? 2 : 1.5;
     ctx.stroke();
+    if (progress < 1) {
+      ctx.fillStyle = this.palette.amber;
+      ctx.beginPath(); ctx.arc(x(tip), y(tip), 3, 0, Math.PI * 2); ctx.fill();
+    }
     ctx.lineWidth = 1;
   }
 
@@ -460,6 +487,17 @@ export class Stage {
 
   layout(ctx, width, data, options, overlays) {
     const {x0, y0, scale, fit} = this.projection(width, this.canvas.clientHeight, options, data.geometry);
+    const reveal = data.geometry && options.example === "draw" ? options.reveal ?? 1 : 1;
+    const textReveal = reveal < 1 ? Math.max(0, (reveal - .12) / .88) : 1;
+    const path = data.baselines?.[0];
+    let revealEnd = Infinity;
+    if (path && reveal < 1) {
+      revealEnd = 0;
+      for (let index = 1; index < path.length; index++) {
+        revealEnd += Math.hypot(path[index][0] - path[index - 1][0], path[index][1] - path[index - 1][1]);
+      }
+      revealEnd *= textReveal;
+    }
     const size = data.geometry ? options.fontSize : Math.max(12, options.fontSize * fit);
     const clipRight = options.overflow === "clip" && !data.geometry ? x0 + options.width * fit : null;
     const addHitbox = (box) => {
@@ -497,11 +535,16 @@ export class Stage {
     const visible = clipRight === null ? null : clipClusters(data.glyphs,
       glyphs.map((view) => ({left: Math.min(view.x, view.x + view.left),
         right: Math.max(view.x + view.right, view.x + view.advance)})), x0, clipRight);
-    this.visibleGlyphs = visible ? visible.filter(Boolean).length : glyphs.length;
+    const shown = (view) => (!visible || visible[view.index])
+      && view.glyph.origin[0] + view.glyph.advance[0] / 2 <= revealEnd;
+    this.visibleGlyphs = glyphs.filter(shown).length;
     for (const [index, line] of data.lines.entries()) {
       const baseline = data.baselines?.[index];
-      if (baseline && options.example === "draw" && options.showCurve) {
-        this.curve(ctx, baseline, {x0, y0, scale});
+      if (baseline && options.example === "draw" && (options.showCurve || options.guideAlpha > 0)) {
+        ctx.save();
+        ctx.globalAlpha = options.showCurve ? 1 : options.guideAlpha;
+        this.curve(ctx, baseline, {x0, y0, scale}, true, reveal);
+        ctx.restore();
       } else if (!baseline) {
         const y = y0 + line.origin[1] * scale;
         ctx.strokeStyle = this.palette.line; ctx.setLineDash([4, 5]);
@@ -516,7 +559,7 @@ export class Stage {
       ctx.clip();
     }
     glyphs.forEach((view) => {
-      if (visible && !visible[view.index]) return;
+      if (!shown(view)) return;
       const {glyph, x, y, font, character, left, right, top, bottom, angle} = view;
       const color = this.palette.runs[Math.max(0, view.run) % this.palette.runs.length];
       ctx.save();
@@ -540,6 +583,7 @@ export class Stage {
     });
     if (overlays.carets) {
       for (const caret of data.carets) {
+        if (caret.position[0] > revealEnd) continue;
         const origin = caret.frame?.origin ?? caret.position;
         const x = x0 + origin[0] * scale;
         const y = y0 + origin[1] * scale;

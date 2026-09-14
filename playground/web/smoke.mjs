@@ -1,7 +1,7 @@
 import {readFileSync} from "node:fs";
 import init, {analyze_scene, feature_catalog, scene_catalog, scaffold_files, zip_files} from "./pkg/textflow_playground.js";
 import {FeatureGraph} from "./features.js";
-import {Stage, stageSummary} from "./stage.js";
+import {Stage, containsHitbox, stageSummary} from "./stage.js";
 import {rustTokens} from "./rust-highlight.js";
 
 const snippet = 'let value = TextFlow::new("<tag>", 12); // safe\n';
@@ -37,6 +37,31 @@ const clipped = paint("clip");
 if (!clipped.calls.some(([method]) => method === "clip")) throw new Error("Clip did not constrain canvas paint");
 if (clipped.hitboxes[0].x !== 29 || clipped.hitboxes[0].width !== 32) throw new Error("Clip did not constrain hit testing");
 if (paint("ellipsis").calls.some(([method]) => method === "clip")) throw new Error("Ellipsis was clipped twice");
+
+const oriented = {origin: [100, 100], angle: Math.PI / 2, local: [0, -10, 20, 0]};
+if (!containsHitbox(oriented, 105, 110) || containsHitbox(oriented, 120, 100)) throw new Error("Oriented hit testing is incorrect");
+const calls = [];
+const rotatedContext = new Proxy({}, {
+  get: (_, method) => method === "measureText"
+    ? () => ({actualBoundingBoxLeft: 1, actualBoundingBoxRight: 18, actualBoundingBoxAscent: 20, actualBoundingBoxDescent: 4})
+    : (...args) => calls.push([method, ...args]),
+  set: () => true,
+});
+const rotatedStage = {
+  projection: Stage.prototype.projection,
+  canvas: {clientHeight: 200},
+  palette: {line: "#888", muted: "#888", runs: ["#888"]},
+  hitboxes: [],
+};
+Stage.prototype.layout.call(rotatedStage, rotatedContext, 600, {
+  ...layout, geometry: true,
+  glyphs: [{...layout.glyphs[0], frame: {origin: [100, 100], tangent: [0, 256]}}],
+}, {fontSize: 32, width: 600, overflow: "ellipsis"}, {boxes: true, carets: false});
+const rotation = calls.findIndex(([method]) => method === "rotate");
+const box = calls.findIndex(([method]) => method === "rect");
+const ink = calls.findIndex(([method], index) => index > box && method === "fillText");
+if (!(rotation >= 0 && box > rotation && ink > box)) throw new Error("Bounds did not share the glyph transform");
+if (Math.abs(rotatedStage.hitboxes[0].angle - Math.PI / 2) > 0.001) throw new Error("Glyph hit region did not rotate");
 
 await init({module_or_path: readFileSync(new URL("./pkg/textflow_playground_bg.wasm", import.meta.url))});
 const features = feature_catalog();

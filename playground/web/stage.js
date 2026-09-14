@@ -22,6 +22,20 @@ function rectangle(ctx, x, y, width, height) {
   ctx.rect(x, y, width, height);
 }
 
+export function containsHitbox(box, x, y) {
+  if (box.local) {
+    const dx = x - box.origin[0];
+    const dy = y - box.origin[1];
+    const cosine = Math.cos(box.angle);
+    const sine = Math.sin(box.angle);
+    const localX = dx * cosine + dy * sine;
+    const localY = -dx * sine + dy * cosine;
+    return localX >= box.local[0] && localX <= box.local[2]
+      && localY >= box.local[1] && localY <= box.local[3];
+  }
+  return x >= box.x && x <= box.x + box.width && y >= box.y && y <= box.y + box.height;
+}
+
 export class Stage {
   constructor(canvas, onInspect, onPathChange) {
     this.canvas = canvas;
@@ -35,7 +49,7 @@ export class Stage {
     canvas.addEventListener("pointermove", (event) => {
       if (this.drawing) {
         for (const sample of event.getCoalescedEvents?.() ?? [event]) this.record(sample);
-      } else if (!this.editable) this.inspect(event);
+      } else this.inspect(event);
     });
     canvas.addEventListener("pointerdown", (event) => {
       if (!this.editable) return this.inspect(event);
@@ -93,8 +107,8 @@ export class Stage {
     const bounds = this.canvas.getBoundingClientRect();
     const x = event.clientX - bounds.left;
     const y = event.clientY - bounds.top;
-    const found = [...this.hitboxes].reverse().find((box) => x >= box.x && x <= box.x + box.width && y >= box.y && y <= box.y + box.height);
-    this.canvas.style.cursor = found ? "crosshair" : "default";
+    const found = [...this.hitboxes].reverse().find((box) => containsHitbox(box, x, y));
+    this.canvas.style.cursor = this.editable || found ? "crosshair" : "default";
     this.onInspect(found?.value ?? null);
   }
 
@@ -290,25 +304,31 @@ export class Stage {
       const y = y0 + origin[1] * scale;
       const advance = Math.max(8, glyph.advance[0] * scale);
       const color = this.palette.runs[Math.max(0, runIndex(index)) % this.palette.runs.length];
+      const character = glyph.character || "□";
+      const angle = glyph.frame ? Math.atan2(glyph.frame.tangent[1], glyph.frame.tangent[0]) : 0;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(angle);
+      ctx.font = `${Math.round(size)}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+      const metrics = ctx.measureText(character);
+      const left = -(metrics?.actualBoundingBoxLeft ?? 0);
+      const right = metrics?.actualBoundingBoxRight ?? metrics?.width ?? advance;
+      const top = -(metrics?.actualBoundingBoxAscent ?? size * .82);
+      const bottom = metrics?.actualBoundingBoxDescent ?? size * .18;
       if (overlays.boxes) {
-        rectangle(ctx, x - 2, y - size * .82, advance + 4, size + 6);
+        rectangle(ctx, left - 2, top - 2, Math.max(1, right - left + 4), Math.max(1, bottom - top + 4));
         ctx.fillStyle = `${color}12`; ctx.fill();
         ctx.strokeStyle = `${color}a0`; ctx.stroke();
       }
-      ctx.save();
-      if (glyph.frame) {
-        ctx.translate(x, y);
-        ctx.rotate(Math.atan2(glyph.frame.tangent[1], glyph.frame.tangent[0]));
-        ctx.fillStyle = color;
-        ctx.font = `${Math.round(size)}px ui-monospace, SFMono-Regular, Menlo, monospace`;
-        ctx.fillText(glyph.character || "□", 0, 0);
-      } else {
-        ctx.fillStyle = color;
-        ctx.font = `${Math.round(size)}px ui-monospace, SFMono-Regular, Menlo, monospace`;
-        ctx.fillText(glyph.character || "□", x, y);
-      }
+      ctx.fillStyle = color;
+      ctx.fillText(character, 0, 0);
       ctx.restore();
-      addHitbox({x: x - 3, y: y - size, width: Math.max(advance + 6, 15), height: size + 9, value: {type: "glyph", ...glyph, run: runIndex(index)}});
+      const value = {type: "glyph", ...glyph, run: runIndex(index)};
+      if (glyph.frame) {
+        addHitbox({origin: [x, y], angle, local: [left - 3, top - 3, right + 3, bottom + 3], value});
+      } else {
+        addHitbox({x: x + left - 3, y: y + top - 3, width: Math.max(1, right - left + 6), height: Math.max(1, bottom - top + 6), value});
+      }
     });
     if (overlays.carets) {
       for (const caret of data.carets) {
@@ -318,10 +338,13 @@ export class Stage {
         ctx.strokeStyle = this.palette.amber; ctx.lineWidth = 1;
         ctx.save();
         ctx.translate(x, y);
-        if (caret.frame) ctx.rotate(Math.atan2(caret.frame.tangent[1], caret.frame.tangent[0]));
+        const angle = caret.frame ? Math.atan2(caret.frame.tangent[1], caret.frame.tangent[0]) : 0;
+        ctx.rotate(angle);
         ctx.beginPath(); ctx.moveTo(.5, -size); ctx.lineTo(.5, 5); ctx.stroke();
         ctx.restore();
-        addHitbox({x: x - 3, y: y - size, width: 6, height: size + 5, value: {type: "caret", ...caret}});
+        const value = {type: "caret", ...caret};
+        if (caret.frame) addHitbox({origin: [x, y], angle, local: [-3, -size, 3, 5], value});
+        else addHitbox({x: x - 3, y: y - size, width: 6, height: size + 5, value});
       }
     }
     if (clipRight !== null) ctx.restore();

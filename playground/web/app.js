@@ -625,7 +625,11 @@ function renderScaffold() {
   }
   const selected = state.files.find((file) => file.path === state.selectedFile);
   $("file-name").textContent = selected?.path ?? "";
-  $("file-source").textContent = selected?.content ?? "";
+  if (selected?.path.endsWith(".rs")) {
+    renderRust($("file-source"), selected.content);
+  } else {
+    $("file-source").textContent = selected?.content ?? "";
+  }
 }
 
 function switchView(name) {

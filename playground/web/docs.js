@@ -1,3 +1,5 @@
+import { renderRust } from "./rust-highlight.js";
+
 function element(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -13,20 +15,30 @@ function sourceLink(rev, source, line, label = "View source ↗") {
   return link;
 }
 
+function rustCode(source) {
+  const pre = element("pre", "");
+  renderRust(pre, source);
+  return pre;
+}
+
 function docText(target, markdown) {
   if (!markdown?.trim()) {
     return;
   }
   let code = false;
+  let rust = false;
   let buffer = [];
   const flush = () => {
     if (!buffer.length) return;
-    target.append(element(code ? "pre" : "p", "", buffer.join("\n")));
+    const source = buffer.join("\n");
+    target.append(code && rust ? rustCode(source) : element(code ? "pre" : "p", "", source));
     buffer = [];
   };
   for (const line of markdown.split("\n")) {
     if (line.trim().startsWith("```")) {
       flush();
+      const language = line.trim().slice(3).trim();
+      rust = !code && (!language || /^(?:rust|rs)(?:[,\s]|$)/.test(language));
       code = !code;
       continue;
     }
@@ -259,7 +271,7 @@ export class DocsView {
     this.detail.append(element("span", "doc-kicker", "GUIDE · " + guide.features.toUpperCase()));
     this.detail.append(element("h3", "", guide.title));
     this.detail.append(element("p", "", guide.summary));
-    this.detail.append(element("pre", "", guide.code));
+    this.detail.append(rustCode(guide.code));
     for (const note of guide.notes) this.detail.append(element("p", "", note));
     if (guide.source) this.detail.append(sourceLink(this.rev, guide.source, 1, guide.sourceLabel));
   }
@@ -273,7 +285,7 @@ export class DocsView {
     const features = element("div", "");
     for (const feature of item.features) features.append(element("span", "doc-feature", feature));
     if (item.features.length) this.detail.append(features);
-    this.detail.append(element("pre", "", item.signature));
+    this.detail.append(rustCode(item.signature));
     docText(this.detail, item.doc);
     this.detail.append(sourceLink(this.rev, item.source ?? module.source, item.line));
     const query = this.search.value.trim().toLowerCase();
@@ -283,7 +295,7 @@ export class DocsView {
       if (query && !itemMatches && !`${method.name} ${method.doc} ${method.signature}`.toLowerCase().includes(query)) continue;
       const block = element("section", "doc-method");
       block.append(element("h4", "", method.name));
-      block.append(element("pre", "", method.signature));
+      block.append(rustCode(method.signature));
       docText(block, method.doc);
       block.append(sourceLink(this.rev, item.source ?? module.source, method.line, `Source line ${method.line} ↗`));
       this.detail.append(block);

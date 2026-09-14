@@ -4,12 +4,14 @@
 
 ### Added
 
-- Glyph layout demonstrates Latin pair kerning and fi/fl ligatures through its synthetic font adapter.
+- Glyph layout uses bundled Lato Regular metrics, pair kerning, and fi/fl ligatures for positioned Latin text.
 - Free draw opens with a spring-timed near-square heart; its guide clears behind the tip unless Show curve is enabled.
 - A Playground budget panel reports feature-specific reference WASM sizes, memory capacities, metered work, and browser-measured throughput.
 
 ### Fixed
 
+- Glyph layout canvas text now uses the same font and scale as its layout metrics.
+- The site build runs its budget script as an ES module on Node.js versions that default to CommonJS.
 - Overlong RTL lines retain their logical start at the right viewport edge when clipped; unexpanded justified lines also honor that edge.
 - API atlas method searches include only methods available under the selected features and open directly on matching methods.
 

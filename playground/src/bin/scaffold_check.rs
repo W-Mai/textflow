@@ -35,10 +35,7 @@ fn main() {
             let path = dir.join(file.path);
             fs::create_dir_all(path.parent().expect("file parent")).expect("file parent");
             let content = if file.path == "Cargo.toml" {
-                let source = format!(
-                    "git = \"https://github.com/W-Mai/textflow\", rev = \"{}\"",
-                    textflow_playground::catalog().source_rev
-                );
+                let source = format!("version = \"{}\"", textflow_playground::catalog().version);
                 file.content
                     .replace(&source, &format!("path = {:?}", root.to_string_lossy()))
             } else {

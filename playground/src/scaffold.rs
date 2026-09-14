@@ -54,10 +54,10 @@ pub fn files(selected: &[String]) -> Result<Vec<File>, String> {
         .collect::<Vec<_>>()
         .join(", ");
     let manifest = format!(
-        "[package]\nname = \"textflow-demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\ntextflow-rs = {{ git = \"https://github.com/W-Mai/textflow\", rev = \"{SOURCE_REV}\", features = [{features}] }}\n"
+        "[package]\nname = \"textflow-demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\ntextflow-rs = {{ version = \"{CRATE_VERSION}\", features = [{features}] }}\n"
     );
     let readme = format!(
-        "# TextFlow demo\n\nRun `cargo run` to inspect the selected TextFlow features.\n\nThe dependency is pinned to source revision `{SOURCE_REV}`.\n"
+        "# TextFlow demo\n\nRun `cargo run` to inspect the selected TextFlow features.\n\nThe dependency uses textflow-rs {CRATE_VERSION}.\n"
     );
     Ok(vec![
         File {
@@ -196,9 +196,13 @@ mod tests {
     }
 
     #[test]
-    fn generated_dependency_is_pinned() {
+    fn generated_dependency_uses_release_version() {
         let files = files(&["alloc".into()]).unwrap();
-        assert!(files[0].content.contains(SOURCE_REV));
+        assert!(files[0]
+            .content
+            .contains(&format!("version = \"{CRATE_VERSION}\"")));
+        assert!(!files[0].content.contains("git ="));
+        assert!(files[2].content.contains(CRATE_VERSION));
         assert!(files[1].content.contains("layout_into"));
     }
 }

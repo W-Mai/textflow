@@ -34,7 +34,9 @@
       <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Color theme: Auto">AUTO</button>
       <span class="version-pill" id="version-pill">TextFlow</span>
       <a href="https://docs.rs/textflow-rs" target="_blank" rel="noreferrer">API docs <span aria-hidden="true">↗</span></a>
-      <a href="https://github.com/W-Mai/textflow" target="_blank" rel="noreferrer">GitHub <span aria-hidden="true">↗</span></a>
+      <a class="github-link" href="https://github.com/W-Mai/textflow" target="_blank" rel="noreferrer" aria-label="GitHub" title="GitHub">
+        <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      </a>
     </div>
   </header>
 
@@ -94,7 +96,7 @@
         </section>
 
         <section class="view" id="view-scaffold" role="tabpanel" hidden>
-          <div class="section-heading"><div><span class="section-kicker">SCAFFOLD</span><h2>Start a project.</h2><p>Choose features, then copy a file or download the project.</p></div></div>
+          <div class="section-heading"><div><span class="section-kicker">SCAFFOLD</span><h2>Start a project.</h2><p>Choose features, then copy the example or download the scaffold.</p></div></div>
           <div class="scaffold-layout">
             <div class="surface scaffold-intro"><span class="panel-number">01</span><h3>Dependency</h3><pre id="scaffold-dependency"></pre><button class="action-button" id="copy-dependency">Copy dependency</button></div>
             <div class="surface scaffold-files"><div class="surface-head"><span>02 / SOURCE FILES</span><button class="text-button" id="download-zip">DOWNLOAD ZIP ↗</button></div><div class="file-layout"><nav id="file-list" aria-label="Generated files"></nav><div class="file-content"><div class="file-content-head"><span id="file-name">src/main.rs</span><button id="copy-file" class="text-button">COPY</button></div><pre id="file-source"></pre></div></div></div>
@@ -108,6 +110,10 @@
       </div>
     </div>
   </main>
+  <footer class="site-footer">
+    <span>POSITION / TEXTFLOW <i>·</i> INK / BROWSER FONT</span>
+    <a href="https://github.com/W-Mai/textflow/blob/master/LICENSE" target="_blank" rel="noreferrer">MIT LICENSE ↗</a>
+  </footer>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script type="module" src="app.js"></script>
 </body>

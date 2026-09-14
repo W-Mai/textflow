@@ -9,6 +9,7 @@
 - The Baselines scene places text and carets on a hand-drawn curve.
 - A Trunk-built Playground site is configured for GitHub Pages.
 - The Playground carries multilingual text on gently evolving curves and highlights the Baselines scene.
+- The Baselines scene smooths drawn paths, animates glyph placement, and exposes path and text controls.
 
 ### Fixed
 
@@ -16,6 +17,7 @@
 - Line-flow widths are distinguished from rendered text bounds.
 - Baseline font size no longer scales the drawn curve; clipped layout output respects the viewport width.
 - Desktop panels fit the viewport with independent scrolling for longer content.
+- Baseline bounds follow glyph rotation and ink dimensions; short paths apply clip or ellipsis overflow.
 
 ## [0.3.0] - 2026-09-13
 

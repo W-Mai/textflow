@@ -1,7 +1,7 @@
 import {readFileSync} from "node:fs";
 import init, {analyze_scene, feature_catalog, scene_catalog, scaffold_files, zip_files} from "./pkg/textflow_playground.js";
 import {FeatureGraph} from "./features.js";
-import {Stage, containsHitbox, stageSummary} from "./stage.js";
+import {Stage, VIEWPORT_WIDTH, clipClusters, containsHitbox, stageSummary, viewportWidthAt} from "./stage.js";
 import {rustTokens} from "./rust-highlight.js";
 import {ODYSSEY_TEXT, ODYSSEY_VERSE, samplePath} from "./baseline-examples.js";
 import {formatBaselinePoints} from "./baseline-code.js";
@@ -57,6 +57,24 @@ for (const [width, height] of [[320, 640], [1280, 720], [2560, 1440]]) {
 }
 if (revealPulse(0) !== 0 || revealPulse(16) !== 1 || revealPulse(23) !== 0) {
   throw new Error("Typography highlight changed its bounded cycle");
+}
+
+const bidiText = "مرحبا · Gate 4 · إلى القاهرة";
+const bidiRuns = {
+  direction: "rtl",
+  logical: [{range: [0, 14], direction: "rtl", level: 1},
+    {range: [14, 20], direction: "ltr", level: 2},
+    {range: [20, 45], direction: "rtl", level: 1}],
+};
+bidiRuns.visual = [...bidiRuns.logical].reverse();
+for (const height of [200, 375]) {
+  const ctx = new Proxy({}, {get: () => () => {}, set: () => true});
+  const stage = {canvas: {clientHeight: height}, hitboxes: [],
+    palette: {muted: "#888", line: "#777", amber: "#f80", cell: "#222", text: "#fff", runs: ["#0f0", "#0ff", "#f0f"]}};
+  Stage.prototype.bidi.call(stage, ctx, 600, bidiRuns, bidiText);
+  if (stage.hitboxes.length !== 6 || stage.hitboxes.slice(3).some((box) => box.y + box.height > height - 5)) {
+    throw new Error("Bidi screen order is clipped by a short desktop stage");
+  }
 }
 
 const pointCode = formatBaselinePoints([[12, -8], [80, 24]]);
@@ -145,10 +163,25 @@ function geometryFont(example) {
 if (!geometryFont("draw")?.startsWith("14px ") || !geometryFont("yuuu")?.startsWith("14px ")) {
   throw new Error("Baseline examples rendered different font sizes at 14 px");
 }
+const clipLayout = {
+  ...layout,
+  runs: [{glyphs: [0, 2]}],
+  glyphs: [
+    {...layout.glyphs[0], cluster: [0, 1], advance: [600, 0]},
+    {...layout.glyphs[0], character: "B", cluster: [1, 2], origin: [600, 0], advance: [600, 0]},
+  ],
+};
+if (clipClusters(clipLayout.glyphs, [{left: 29, right: 48}, {left: 48, right: 68}], 29, 61).join() !== "true,false"
+  || clipClusters([{cluster: [0, 1]}, {cluster: [0, 1]}],
+    [{left: 29, right: 48}, {left: 48, right: 68}], 29, 61).some(Boolean)) {
+  throw new Error("Clip did not preserve complete text clusters");
+}
 function paint(overflow) {
   const calls = [];
   const ctx = new Proxy({}, {
-    get: (_, method) => (...args) => calls.push([method, ...args]),
+    get: (_, method) => method === "measureText"
+      ? () => ({actualBoundingBoxLeft: 0, actualBoundingBoxRight: 16, actualBoundingBoxAscent: 10, actualBoundingBoxDescent: 3})
+      : (...args) => calls.push([method, ...args]),
     set: () => true,
   });
   const stage = {
@@ -157,13 +190,97 @@ function paint(overflow) {
     palette: {line: "#888", muted: "#888", runs: ["#888"]},
     hitboxes: [],
   };
-  Stage.prototype.layout.call(stage, ctx, 600, layout, {fontSize: 32, width: 32, overflow}, {boxes: false, carets: false});
-  return {calls, hitboxes: stage.hitboxes};
+  Stage.prototype.layout.call(stage, ctx, 600, clipLayout, {fontSize: 32, width: 32, overflow}, {boxes: false, carets: false});
+  return {calls, hitboxes: stage.hitboxes, visibleGlyphs: stage.visibleGlyphs};
 }
 const clipped = paint("clip");
 if (!clipped.calls.some(([method]) => method === "clip")) throw new Error("Clip did not constrain canvas paint");
-if (clipped.hitboxes[0].x !== 29 || clipped.hitboxes[0].width !== 32) throw new Error("Clip did not constrain hit testing");
-if (paint("ellipsis").calls.some(([method]) => method === "clip")) throw new Error("Ellipsis was clipped twice");
+if (clipped.visibleGlyphs !== 1 || clipped.hitboxes.length !== 1 || clipped.hitboxes[0].x !== 29
+  || clipped.calls.some(([method, text]) => method === "fillText" && text === "B")) {
+  throw new Error("Clip painted or hit-tested a partial glyph");
+}
+if (stageSummary({ok: true, data: {...clipLayout, kind: "layout"}}, clipped.visibleGlyphs) !== "1 / 2 GLYPHS · 1 LINE") {
+  throw new Error("Clip summary hides the visible glyph count");
+}
+const ellipsized = paint("ellipsis");
+if (ellipsized.calls.some(([method]) => method === "clip")
+  || !ellipsized.calls.some(([method, text]) => method === "fillText" && text === "B")) {
+  throw new Error("Ellipsis was clipped like the clip mode");
+}
+const guideCalls = [];
+const guideContext = new Proxy({}, {
+  get: (_, method) => method === "measureText" ? () => ({width: 76})
+    : (...args) => guideCalls.push([method, ...args]),
+  set: () => true,
+});
+Stage.prototype.widthGuide.call({palette: {amber: "#f80", bg: "#111"}},
+  guideContext, 600, 200, 509, "480 PX");
+if (!guideCalls.some(([method, x, y]) => method === "moveTo" && x === 509.5 && y === 52)
+  || !guideCalls.some(([method, x, y]) => method === "lineTo" && x === 509.5 && y === 182)) {
+  throw new Error("Viewport guide does not align to the layout boundary");
+}
+for (const canvasWidth of [320, 600, 1280]) {
+  const projection = Stage.prototype.projection(canvasWidth, 400, {fontSize: 32, width: 480}, false);
+  let previous = -Infinity;
+  for (let width = VIEWPORT_WIDTH.min; width <= VIEWPORT_WIDTH.max; width += VIEWPORT_WIDTH.step) {
+    const x = projection.x0 + width * projection.fit;
+    if (x <= previous || viewportWidthAt(x, projection) !== width || x > canvasWidth - 44) {
+      throw new Error("Viewport guide is not draggable across the full width range");
+    }
+    previous = x;
+  }
+  if (viewportWidthAt(-100, projection) !== VIEWPORT_WIDTH.min
+    || viewportWidthAt(canvasWidth + 100, projection) !== VIEWPORT_WIDTH.max) {
+    throw new Error("Viewport drag escaped the width control limits");
+  }
+}
+const coreCalls = [];
+const coreContext = new Proxy({}, {
+  get: (_, method) => (...args) => coreCalls.push([method, ...args]),
+  set: () => true,
+});
+const coreStage = {canvas: {clientHeight: 200},
+  palette: {text: "#fff", line: "#888", amber: "#f80", muted: "#aaa"}, hitboxes: []};
+const coreOptions = {width: 480, fontSize: 32};
+const coreProjection = Stage.prototype.projection(600, 400, coreOptions, false);
+Stage.prototype.core.call(coreStage, coreContext, 600, {lines: [{width: 24, text: "A small boat"}]}, coreOptions, coreProjection);
+const coreBars = coreCalls.filter(([method, , y, , height]) => method === "fillRect" && y === 97 && height === 4);
+if (coreBars.length !== 2 || Math.abs(coreBars[0][3] - coreOptions.width * coreProjection.fit) > 0.001
+  || Math.abs(coreBars[1][3] - 24 * VIEWPORT_WIDTH.step * coreProjection.fit) > 0.001) {
+  throw new Error("Line flow width bars do not share the viewport guide scale");
+}
+coreCalls.length = 0;
+coreStage.hitboxes = [];
+const coreLine = {width: 8, text: "came on."};
+Stage.prototype.core.call(coreStage, coreContext, 600, {lines: Array(4).fill(coreLine)}, coreOptions, coreProjection);
+if (coreStage.hitboxes.length !== 4
+  || !coreCalls.some(([method, , y, , height]) => method === "fillRect" && y === 184 && height === 4)) {
+  throw new Error("Four Line flow widths did not fit the output canvas");
+}
+coreCalls.length = 0;
+coreStage.hitboxes = [];
+Stage.prototype.core.call(coreStage, coreContext, 600, {lines: Array(8).fill(coreLine)}, coreOptions, coreProjection);
+if (coreStage.hitboxes.length !== 3
+  || !coreCalls.some(([method, label]) => method === "fillText" && label === "+ 5 MORE LINES")) {
+  throw new Error("Overflowing Line flow rows are not accounted for");
+}
+const listeners = new Map();
+const dragCanvas = {
+  style: {},
+  addEventListener: (name, callback) => listeners.set(name, callback),
+  getBoundingClientRect: () => ({left: 100, top: 50, width: 600, height: 400}),
+  setPointerCapture: () => {},
+};
+const dragWidths = [];
+const dragStage = new Stage(dragCanvas, () => {}, () => {}, (width) => dragWidths.push(width));
+dragStage.last = [{ok: true, data: {kind: "core"}}, "", coreOptions, {}];
+const guideX = coreProjection.x0 + coreOptions.width * coreProjection.fit;
+listeners.get("pointerdown")({button: 0, pointerId: 1, clientX: 100 + guideX, clientY: 150, preventDefault() {}});
+listeners.get("pointermove")({pointerId: 1, clientX: 100 + coreProjection.x0 + 320 * coreProjection.fit, clientY: 150});
+listeners.get("pointerup")({pointerId: 1, clientX: 100 + coreProjection.x0 + 320 * coreProjection.fit, clientY: 150});
+if (dragWidths.join() !== "480,320,320" || dragStage.widthDragging) {
+  throw new Error("Dragging the guide did not update viewport width");
+}
 
 const oriented = {origin: [100, 100], angle: Math.PI / 2, local: [0, -10, 20, 0]};
 if (!containsHitbox(oriented, 105, 110) || containsHitbox(oriented, 120, 100)) throw new Error("Oriented hit testing is incorrect");
@@ -204,6 +321,13 @@ for (const scene of scenes) {
   const result = analyze_scene(scene.id, scene.sample, {width: 480, fontSize: 32});
   if (!result.ok || !result.data) throw new Error(`${scene.id}: ${JSON.stringify(result.error)}`);
   if (!stageSummary(result)) throw new Error(`${scene.id}: summary missing`);
+}
+const bidiScene = scenes.find((scene) => scene.id === "bidi");
+const bidiExample = analyze_scene("bidi", bidiScene.sample, {direction: "auto"});
+const screenOrder = bidiExample.data.visual.map((run) => bidiExample.data.logical.findIndex((source) =>
+  source.range[0] === run.range[0] && source.range[1] === run.range[1]) + 1);
+if (bidiExample.data.direction !== "rtl" || screenOrder.join() !== "3,2,1") {
+  throw new Error("Bidi example does not visibly reorder source runs");
 }
 const greek = analyze_scene("geometry", ODYSSEY_TEXT, {
   fontSize: 16, path: sampled, pathSampled: true, smoothing: 0, motionDepth: 0, overflow: "clip",

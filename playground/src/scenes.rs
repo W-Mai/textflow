@@ -105,8 +105,8 @@ pub const SCENES: &[SceneSpec] = &[
         id: "bidi",
         label: "Bidi",
         requires: &["bidi"],
-        sample: "Gate 4 · مرحبا · Boarding soon.",
-        description: "Logical and visual reading order.",
+        sample: "مرحبا · Gate 4 · إلى القاهرة",
+        description: "Watch three text runs change places in an RTL paragraph.",
     },
     SceneSpec {
         id: "shaping",

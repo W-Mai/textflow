@@ -1,5 +1,5 @@
 import { FeatureGraph, renderFeatures } from "./features.js";
-import { Stage, stageSummary } from "./stage.js";
+import { Stage, VIEWPORT_WIDTH, stageSummary } from "./stage.js";
 import { DocsView } from "./docs.js";
 import { renderRust } from "./rust-highlight.js";
 import { loadPortrait, ODYSSEY_SOURCE, ODYSSEY_TEXT } from "./baseline-examples.js";
@@ -32,7 +32,7 @@ const state = {
 };
 
 const controls = [
-  {key: "width", label: "Viewport width", type: "range", min: 32, max: 800, step: 16},
+  {key: "width", label: "Viewport width", type: "range", ...VIEWPORT_WIDTH},
   {key: "fontSize", label: "Font size", type: "range", min: 12, max: 64, step: 1, needs: "shaping"},
   {key: "lineHeight", label: "Line height", type: "range", min: 20, max: 88, step: 1, needs: "shaping"},
   {key: "lineSpacing", label: "Line spacing", type: "range", min: 0, max: 32, step: 1, needs: "shaping"},
@@ -106,7 +106,7 @@ let updateFrame;
 const stage = new Stage($("stage"), inspect, (points) => {
   state.options.path = points;
   schedule();
-});
+}, setViewportWidth);
 const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 let themeMode = "auto";
@@ -350,6 +350,8 @@ function inspect(hit) {
       target.append(row("Text", hit.text), row("UTF-8 bytes", hit.range.join("…")), row("Width", hit.width));
     } else if (hit.type === "grapheme") {
       target.append(row("Cluster", hit.text), row("UTF-8 bytes", hit.range.join("…")), row("Script", hit.script), row("Break after", hit.breakAfter ? "yes" : "no"));
+    } else if (hit.type === "source run" || hit.type === "screen run") {
+      target.append(row("Source run", hit.sourceIndex), row("Text", hit.text), row("Direction", hit.direction.toUpperCase()), row("Embedding level", hit.level));
     } else {
       target.append(row("Text", hit.text), row("UTF-8 bytes", hit.range.join("…")), row("Direction", hit.direction), row("Level", hit.level));
     }
@@ -370,12 +372,15 @@ function inspect(hit) {
   target.append(title);
   if (data.kind === "layout") {
     target.append(row("Lines", data.lines.length), row("Glyphs", data.glyphs.length), row("Visual runs", data.runs.length), row("Caret stops", data.carets.length), row(data.privateBytes == null ? "Scratch capacity" : "Caller output", `${data.outputBytes.toLocaleString()} B`));
+    if (stage.visibleGlyphs !== null && stage.visibleGlyphs < data.glyphs.length) target.append(row("Visible glyphs", stage.visibleGlyphs));
     if (data.privateBytes != null) target.append(row("Private buffers", `${data.privateBytes.toLocaleString()} B`));
     target.append(row("Font source", "synthetic demo adapter"));
   } else if (data.kind === "unicode") {
     target.append(row("Graphemes", data.graphemes.length), row("Breaks", data.breaks.length), row("Script runs", data.scripts.length));
   } else if (data.kind === "bidi") {
     target.append(row("Paragraph direction", data.direction), row("Logical runs", data.logical.length), row("Visual runs", data.visual.length));
+    const order = data.visual.map((run) => data.logical.findIndex((source) => source.range[0] === run.range[0] && source.range[1] === run.range[1]) + 1);
+    target.append(row("Screen order · left to right", order.join(" → ")));
   } else {
     target.append(row("Lines", data.lines.length), row("Total width", data.lines.reduce((sum, line) => sum + line.width, 0)));
   }
@@ -390,6 +395,17 @@ function currentScene() {
 
 function shapingScene() {
   return !["core", "unicode", "bidi"].includes(state.scene);
+}
+
+function setViewportWidth(width) {
+  if (state.options.width === width) return;
+  state.options.width = width;
+  const input = $("controls").querySelector('input[data-key="width"]');
+  if (input) {
+    input.value = String(width);
+    input.closest("label").querySelector("output").textContent = width.toLocaleString();
+  }
+  schedule();
 }
 
 function renderControls() {
@@ -410,6 +426,7 @@ function renderControls() {
   }
   for (const definition of controls) {
     if (definition.only && definition.only !== state.scene) continue;
+    if (definition.key === "width" && ["unicode", "bidi"].includes(state.scene)) continue;
     if (state.scene === "geometry" && !["fontSize", "geometryOverflow", "alignment", "letterSpacing", "wordSpacing", "smoothing", "motionEnabled", "motionDepth", "motionSpeed"].includes(definition.key)) continue;
     if (state.baselineExample === "yuuu" && definition.key === "smoothing") continue;
     if (definition.needs === "shaping" && !shapingScene()) continue;
@@ -428,7 +445,9 @@ function renderControls() {
       top.append(output);
       input = document.createElement("input");
       Object.assign(input, {type: "range", min: definition.min, max: definition.max, step: definition.step, value: state.options[definition.key]});
+      input.dataset.key = definition.key;
       input.addEventListener("input", () => {
+        if (definition.key === "width") return setViewportWidth(Number(input.value));
         state.options[definition.key] = Number(input.value);
         output.textContent = Number(input.value).toLocaleString();
         schedule();
@@ -573,7 +592,7 @@ function refresh(motionOnly = false) {
   empty.textContent = state.response.ok ? "" : `${state.response.error?.kind ?? "Error"}: ${state.response.error?.message ?? "Unknown failure"}`;
   stage.render(state.response, text, options, {boxes: $("show-boxes").checked, carets: $("show-carets").checked});
   const data = state.response.data;
-  $("stage-summary").textContent = state.scene === "geometry" && !state.response.ok ? state.response.error?.message ?? "Draw a curve" : stageSummary(state.response);
+  $("stage-summary").textContent = state.scene === "geometry" && !state.response.ok ? state.response.error?.message ?? "Draw a curve" : stageSummary(state.response, stage.visibleGlyphs);
   if (!motionOnly) {
     $("copy-points").disabled = state.scene !== "geometry" || !state.response.ok || !data?.baselines?.[0]?.length;
     $("unit-label").hidden = !state.response.ok || data.kind !== "layout";

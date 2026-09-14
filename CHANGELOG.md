@@ -9,10 +9,11 @@
 - Feature-aware example scaffolding and a source-derived API atlas accompany the Playground.
 - The Baselines scene places text and carets on a hand-drawn curve.
 - A Trunk-built Playground site is configured for GitHub Pages.
-- The Playground carries multilingual text on gently evolving curves and highlights the Baselines scene.
 - The Baselines scene smooths drawn paths, animates glyph placement, and exposes path and text controls.
 - Baseline curves can be copied as static Rust `FlowPoint` slices.
 - A typographic field behind the page content lets the pointer displace individual multilingual glyphs with spring return.
+- Width-constrained scenes provide a draggable viewport boundary and Line flow bars on the same column scale.
+- The Bidi scene shows source and screen run order with matched colors and numbers.
 
 ### Fixed
 
@@ -23,6 +24,7 @@
 - Baseline bounds follow glyph rotation and ink dimensions; short paths apply clip or ellipsis overflow.
 - Scaffold examples use the released crate version, and the multilingual page background renders text without visible guide curves.
 - Baseline examples keep the selected font size in canvas pixels while fitting curves to the stage.
+- Clip hides incomplete glyph clusters at the viewport edge and reports the number of visible glyphs.
 
 ## [0.3.0] - 2026-09-13
 

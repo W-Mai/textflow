@@ -83,19 +83,19 @@ export class Stage {
 
   projection(width, height, options, geometry) {
     const emScale = options.fontSize / 1000;
-    if (geometry && options.example === "odyssey" && options.pathBounds) {
+    if (geometry && options.example === "yuuu" && options.pathBounds) {
       const [left, top, boxWidth, boxHeight] = options.pathBounds;
-      const fit = Math.min((width - 64) / boxWidth, (height - Math.min(72, height * .24)) / boxHeight);
+      const fit = Math.min((width - 48) / boxWidth, (height - Math.min(54, height * .18)) / boxHeight);
       return {
         x0: (width - boxWidth * fit) / 2 - left * fit,
         y0: (height - boxHeight * fit) / 2 - top * fit,
-        scale: emScale * fit,
+        scale: emScale,
         fit,
       };
     }
     const extent = geometry ? 640 : options.width;
     const fit = Math.min(1, Math.max(1, width - 74) / Math.max(1, extent));
-    return {x0: 29, y0: 98, scale: emScale * fit, fit};
+    return {x0: 29, y0: 98, scale: emScale * (geometry ? 1 : fit), fit};
   }
 
   record(event) {
@@ -278,7 +278,7 @@ export class Stage {
 
   layout(ctx, width, data, options, overlays) {
     const {x0, y0, scale, fit} = this.projection(width, this.canvas.clientHeight, options, data.geometry);
-    const size = Math.max(options.example === "odyssey" ? 8 : 12, options.fontSize * fit);
+    const size = data.geometry ? options.fontSize : Math.max(12, options.fontSize * fit);
     const clipRight = options.overflow === "clip" && !data.geometry ? x0 + options.width * fit : null;
     const addHitbox = (box) => {
       if (clipRight !== null) {
@@ -293,9 +293,9 @@ export class Stage {
     const runIndex = (index) => data.runs.findIndex((run) => index >= run.glyphs[0] && index < run.glyphs[1]);
     for (const [index, line] of data.lines.entries()) {
       const baseline = data.baselines?.[index];
-      if (baseline) {
+      if (baseline && options.example !== "yuuu") {
         this.curve(ctx, baseline, {x0, y0, scale});
-      } else {
+      } else if (!baseline) {
         const y = y0 + line.origin[1] * scale;
         ctx.strokeStyle = this.palette.line; ctx.setLineDash([4, 5]);
         ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(width - 25, y); ctx.stroke(); ctx.setLineDash([]);
@@ -319,7 +319,7 @@ export class Stage {
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(angle);
-      ctx.font = options.example === "odyssey"
+      ctx.font = options.example === "yuuu"
         ? `${Math.round(size)}px "Times New Roman", Georgia, serif`
         : `${Math.round(size)}px ui-monospace, SFMono-Regular, Menlo, monospace`;
       const metrics = ctx.measureText(character);

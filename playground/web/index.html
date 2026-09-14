@@ -29,16 +29,7 @@
 </head>
 <body>
   <div class="page-glow" aria-hidden="true"></div>
-  <svg class="atmosphere" width="1600" height="900" aria-hidden="true" focusable="false">
-    <defs>
-      <path id="rights-path-zh" d="M-80 205 C300 185 570 240 820 210 S1330 190 1680 215"></path>
-      <path id="rights-path-en" d="M-80 445 C300 425 570 480 820 450 S1330 430 1680 455"></path>
-      <path id="rights-path-ja" d="M-80 690 C300 670 570 725 820 695 S1330 675 1680 700"></path>
-    </defs>
-    <text><textPath href="#rights-path-zh" startOffset="12%">人人生而自由，在尊严和权利上一律平等。</textPath></text>
-    <text><textPath href="#rights-path-en" startOffset="33%">All human beings are born free and equal in dignity and rights.</textPath></text>
-    <text><textPath href="#rights-path-ja" startOffset="54%">すべての人間は、生まれながらにして自由であり、かつ、尊厳と権利とについて平等である。</textPath></text>
-  </svg>
+  <svg class="atmosphere" aria-hidden="true" focusable="false"></svg>
   <header class="site-header">
     <a class="brand" href="#playground" aria-label="TextFlow playground home">
       <img src="textflow-logo.svg" alt="TextFlow" width="176" height="44">
@@ -92,7 +83,17 @@
                 <textarea id="source" spellcheck="false" maxlength="4096" rows="4"></textarea>
               </section>
             </div>
-            <div class="detail-column">
+            <div class="detail-column" id="detail-column">
+              <div class="example-switch" id="baseline-examples" role="group" aria-label="Baseline examples" hidden>
+                <button class="example-button" id="example-draw" type="button" aria-pressed="true">
+                  <svg class="example-logo draw-logo" viewBox="0 0 36 32" aria-hidden="true"><path class="logo-base" d="M3 23 C8 17 10 25 16 15 S25 12 33 5"/><path class="logo-trace" pathLength="1" d="M3 23 C8 17 10 25 16 15 S25 12 33 5"/><path class="logo-node" d="M3 23h2m11-8h2m15-10h2"/></svg>
+                  <span>Free draw</span>
+                </button>
+                <button class="example-button" id="example-yuuu" type="button" aria-pressed="false">
+                  <svg class="example-logo yuuu-logo" viewBox="0 0 36 32" aria-hidden="true"><path class="logo-base" d="M3 27 C8 23 8 8 17 5 C25 2 29 8 28 15 C27 20 31 24 34 27"/><path class="logo-trace" pathLength="1" d="M3 27 C8 23 8 8 17 5 C25 2 29 8 28 15 C27 20 31 24 34 27"/><path class="logo-detail" pathLength="1" d="M11 17 C15 13 20 15 23 17 M14 22 Q18 25 22 21"/></svg>
+                  <span>yuuu</span>
+                </button>
+              </div>
               <section class="surface code-surface"><div class="surface-head"><span>RUST API</span><div class="code-actions"><button class="text-button" id="copy-points" type="button" aria-label="Copy baseline points" hidden disabled>COPY POINTS</button><button class="text-button" id="copy-code" type="button">COPY API</button></div></div><pre id="code-preview" class="code-preview"></pre></section>
               <section class="surface controls-surface"><div class="surface-head"><span>PARAMETERS</span><span class="head-glyph">⌘</span></div><div id="controls" class="controls"></div></section>
               <section class="surface inspect-surface"><div class="surface-head"><span>INSPECTOR</span><span id="inspector-count">—</span></div><div id="inspector" class="inspector"></div></section>

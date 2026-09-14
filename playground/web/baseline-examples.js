@@ -1,4 +1,4 @@
-export const ODYSSEY_TEXT = [
+export const ODYSSEY_VERSE = [
   "ναιετάω δ' Ἰθάκην εὐδείελον· ἐν δ' ὄρος αὐτῇ,",
   "Νήριτον εἰνοσίφυλλον, ἀριπρεπές· ἀμφὶ δὲ νῆσοι",
   "πολλαὶ ναιετάουσι μάλα σχεδὸν ἀλλήλῃσι,",
@@ -9,9 +9,11 @@ export const ODYSSEY_TEXT = [
   "ἧς γαίης δύναμαι γλυκερώτερον ἄλλο ἰδέσθαι.",
 ].join(" ");
 
+export const ODYSSEY_TEXT = Array(3).fill(ODYSSEY_VERSE).join(" ");
+
 export const ODYSSEY_SOURCE = "https://el.wikisource.org/wiki/Οδύσσεια/ι";
 
-export function samplePath(path, segments = 2048) {
+export function samplePath(path, segments = 1024) {
   if (!Number.isInteger(segments) || segments < 1 || segments > 2048) throw new Error("Invalid portrait sample count");
   const length = path.getTotalLength();
   if (!Number.isFinite(length) || length <= 0) throw new Error("Portrait path has no measurable length");

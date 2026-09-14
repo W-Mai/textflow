@@ -33,6 +33,7 @@ pub struct Options {
     pub memory_limit: usize,
     pub path: Option<Vec<[i32; 2]>>,
     pub path_sampled: bool,
+    pub path_scale: f32,
     pub smoothing: u8,
     pub motion_depth: u8,
     pub motion_phase: f32,
@@ -57,6 +58,7 @@ impl Default for Options {
             memory_limit: 131_072,
             path: None,
             path_sampled: false,
+            path_scale: 1.0,
             smoothing: 2,
             motion_depth: 8,
             motion_phase: 0.0,
@@ -383,7 +385,9 @@ fn path_units(value: f64, font_size: u32) -> i32 {
 fn smooth_path(options: &Options) -> Result<Vec<FlowPoint>, Failure> {
     let samples = options.path.as_deref().unwrap_or(&DEFAULT_PATH);
     let limit = if options.path_sampled { 2049 } else { 512 };
-    if !(2..=limit).contains(&samples.len())
+    if !options.path_scale.is_finite()
+        || options.path_scale <= 0.0
+        || !(2..=limit).contains(&samples.len())
         || (options.path_sampled && options.path.is_none())
         || samples
             .iter()
@@ -402,7 +406,12 @@ fn smooth_path(options: &Options) -> Result<Vec<FlowPoint>, Failure> {
     }
     let mut anchors: Vec<[f64; 2]> = samples
         .iter()
-        .map(|point| [f64::from(point[0]), f64::from(point[1])])
+        .map(|point| {
+            [
+                f64::from(point[0]) * f64::from(options.path_scale),
+                f64::from(point[1]) * f64::from(options.path_scale),
+            ]
+        })
         .collect();
     for _ in 0..if options.path_sampled {
         0
@@ -689,9 +698,23 @@ fn layout(scene: &str, text: &str, options: &Options) -> Result<Data, Failure> {
             None,
         )));
     }
-    let mut scratch = LayoutScratch::<64, 512, 64, 1024>::new();
+    if scene == "geometry" {
+        layout_fixed::<1280, 1280>(text, &flow, &faces, points.as_deref(), baseline)
+    } else {
+        layout_fixed::<512, 1024>(text, &flow, &faces, points.as_deref(), baseline)
+    }
+}
+
+fn layout_fixed<const GLYPHS: usize, const CARETS: usize>(
+    text: &str,
+    flow: &TextFlow<'_>,
+    faces: &[&dyn Typeface],
+    points: Option<&[FlowPoint]>,
+    baseline: Option<PolylineBaseline<'_>>,
+) -> Result<Data, Failure> {
+    let mut scratch = LayoutScratch::<64, GLYPHS, 64, CARETS>::new();
     let result = flow
-        .layout_with_scratch(&faces, &mut scratch)
+        .layout_with_scratch(faces, &mut scratch)
         .map_err(|error| fail("Layout", error))?;
     let (frames, caret_frames) = if let Some(baseline) = baseline {
         let baselines = [baseline];
@@ -715,7 +738,7 @@ fn layout(scene: &str, text: &str, options: &Options) -> Result<Data, Failure> {
     } else {
         (None, None)
     };
-    let output_bytes = core::mem::size_of::<LayoutScratch<64, 512, 64, 1024>>();
+    let output_bytes = core::mem::size_of::<LayoutScratch<64, GLYPHS, 64, CARETS>>();
     let geometry = match (&frames, &caret_frames, &points) {
         (Some(glyphs), Some(carets), Some(points)) => Some(GeometryView {
             glyphs,

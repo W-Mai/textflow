@@ -4,7 +4,7 @@
 
 ### Added
 
-- Baselines accepts up to 512 hand-drawn anchors and includes an Odyssey portrait example with Greek text.
+- Baselines accepts up to 512 hand-drawn anchors and places repeated Greek text along the complete yuuu portrait curve.
 - A browser Playground runs the TextFlow WebAssembly engine with interactive layout, script, memory, and baseline scenes.
 - Feature-aware example scaffolding and a source-derived API atlas accompany the Playground.
 - The Baselines scene places text and carets on a hand-drawn curve.
@@ -21,6 +21,7 @@
 - Desktop panels fit the viewport with independent scrolling for longer content.
 - Baseline bounds follow glyph rotation and ink dimensions; short paths apply clip or ellipsis overflow.
 - Scaffold examples use the released crate version, and the multilingual page background renders text without visible guide curves.
+- Baseline examples keep the selected font size in canvas pixels while fitting curves to the stage.
 
 ## [0.3.0] - 2026-09-13
 

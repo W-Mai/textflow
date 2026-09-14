@@ -333,6 +333,37 @@ mod tests {
     }
 
     #[test]
+    fn geometry_path_fit_does_not_change_font_units() {
+        let scaled = analyze(
+            "geometry",
+            "Lorem",
+            &Options {
+                path: Some(vec![[0, 0], [100, 0]]),
+                path_sampled: true,
+                path_scale: 2.0,
+                font_size: 14,
+                motion_depth: 0,
+                ..Options::default()
+            },
+        );
+        assert!(scaled.ok, "{:?}", scaled.error.map(|error| error.message));
+        let json = serde_json::to_value(scaled).unwrap();
+        assert_eq!(
+            json["data"]["baselines"][0],
+            serde_json::json!([[0, 0], [14286, 0]])
+        );
+        let invalid = analyze(
+            "geometry",
+            "Lorem",
+            &Options {
+                path_scale: 0.0,
+                ..Options::default()
+            },
+        );
+        assert_eq!(invalid.error.unwrap().kind, "InvalidPath");
+    }
+
+    #[test]
     fn geometry_spline_is_bounded_and_motion_is_deterministic() {
         let path = Some(vec![[0, 80], [60, 40], [120, 115], [180, 50], [260, 90]]);
         let analyze_phase = |phase| {

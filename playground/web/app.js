@@ -18,7 +18,7 @@ const state = {
   docs: null,
   descriptions: new Map(),
   baselineExample: "draw",
-  baselineDrafts: {draw: null, odyssey: null},
+  baselineDrafts: {draw: null, yuuu: null},
   portrait: null,
   options: {
     width: 480, fontSize: 32, lineHeight: 42, lineSpacing: 8,
@@ -32,7 +32,7 @@ const state = {
 
 const controls = [
   {key: "width", label: "Viewport width", type: "range", min: 32, max: 800, step: 16},
-  {key: "fontSize", label: "Font size", type: "range", min: 16, max: 64, step: 1, needs: "shaping"},
+  {key: "fontSize", label: "Font size", type: "range", min: 12, max: 64, step: 1, needs: "shaping"},
   {key: "lineHeight", label: "Line height", type: "range", min: 20, max: 88, step: 1, needs: "shaping"},
   {key: "lineSpacing", label: "Line spacing", type: "range", min: 0, max: 32, step: 1, needs: "shaping"},
   {key: "direction", label: "Direction", type: "select", values: ["auto", "ltr", "rtl"], needs: "bidi"},
@@ -68,12 +68,14 @@ function restoreBaseline(draft) {
 }
 
 async function selectBaselineExample(example) {
-  if (state.scene !== "geometry" || example === state.baselineExample || !["draw", "odyssey"].includes(example)) return;
+  if (state.scene !== "geometry" || example === state.baselineExample || !["draw", "yuuu"].includes(example) || exampleLoading) return;
+  exampleLoading = true;
+  renderExampleSwitch();
   let portrait;
-  if (example === "odyssey") {
+  if (example === "yuuu") {
     try { portrait = await loadPortrait(); }
-    catch (error) { toast(String(error)); renderControls(); return; }
-    if (state.scene !== "geometry") return;
+    catch (error) { toast(String(error)); exampleLoading = false; renderExampleSwitch(); return; }
+    if (state.scene !== "geometry") { exampleLoading = false; renderExampleSwitch(); return; }
   }
   state.baselineDrafts[state.baselineExample] = captureBaseline();
   state.baselineExample = example;
@@ -83,7 +85,7 @@ async function selectBaselineExample(example) {
     draft = {
       text: ODYSSEY_TEXT,
       path: state.portrait.points,
-      settings: {...captureBaseline().settings, fontSize: 16, smoothing: 0, motionDepth: 2},
+      settings: {...captureBaseline().settings, fontSize: 16, smoothing: 0, motionEnabled: true, motionDepth: 16, motionSpeed: 0.6, geometryOverflow: "clip"},
     };
     state.baselineDrafts[example] = draft;
   }
@@ -93,8 +95,11 @@ async function selectBaselineExample(example) {
   renderControls();
   refresh();
   syncBaselineMotion();
+  exampleLoading = false;
+  renderExampleSwitch();
 }
 
+let exampleLoading = false;
 let toastTimer;
 let updateFrame;
 const stage = new Stage($("stage"), inspect, (points) => {
@@ -107,17 +112,49 @@ let themeMode = "auto";
 
 function startAtmosphere() {
   const surface = document.querySelector(".atmosphere");
-  const paths = ["zh", "en", "ja"].map((language) => $(`rights-path-${language}`));
-  const heights = [205, 445, 690];
-  const phases = heights.map(() => Math.random() * Math.PI * 2);
+  const phrases = [
+    "人人生而自由，在尊严和权利上一律平等。",
+    "All human beings are born free and equal in dignity and rights.",
+    "すべての人間は、生まれながらにして自由であり、かつ、尊厳と権利とについて平等である。",
+  ];
+  const svg = (name) => document.createElementNS("http://www.w3.org/2000/svg", name);
+  let paths = [];
+  let heights = [];
+  let width = 0;
   let frame = 0;
   let last = 0;
   let visible = false;
+  const build = () => {
+    width = Math.max(1, window.innerWidth);
+    const height = Math.max(1, window.innerHeight);
+    const count = Math.ceil(height / 86) + 1;
+    const defs = svg("defs");
+    const rows = [];
+    paths = [];
+    heights = [];
+    surface.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    for (let index = 0; index < count; index++) {
+      const phrase = phrases[index % phrases.length];
+      const path = svg("path");
+      path.id = `rights-path-${index}`;
+      defs.append(path);
+      const textPath = svg("textPath");
+      textPath.setAttribute("href", `#${path.id}`);
+      textPath.textContent = `${phrase}  `.repeat(Math.ceil((width + 200) / (phrase.length * 7)) + 2);
+      const row = svg("text");
+      row.classList.add(`language-${index % phrases.length}`);
+      row.append(textPath);
+      rows.push(row);
+      paths.push(path);
+      heights.push((index + .45) * height / count);
+    }
+    surface.replaceChildren(defs, ...rows);
+  };
   const draw = (time) => {
     paths.forEach((path, index) => {
       const y = heights[index];
-      const wave = (step, depth) => Number((depth * Math.sin(time * .00016 + phases[index] + step)).toFixed(1));
-      path.setAttribute("d", `M-80 ${y + wave(0, 5)} C300 ${y + wave(.6, 18)} 570 ${y + wave(1.4, 18)} 820 ${y + wave(2.2, 6)} S1330 ${y + wave(3.2, 18)} 1680 ${y + wave(4, 7)}`);
+      const wave = (step, depth) => Number((depth * Math.sin(time * .00012 + index * 1.7 + step)).toFixed(1));
+      path.setAttribute("d", `M-100 ${y + wave(0, 4)} C${width * .25} ${y + wave(.6, 12)} ${width * .45} ${y + wave(1.4, 12)} ${width * .65} ${y + wave(2.2, 5)} S${width * .9} ${y + wave(3.2, 12)} ${width + 100} ${y + wave(4, 5)}`);
     });
   };
   const tick = (time) => {
@@ -132,10 +169,12 @@ function startAtmosphere() {
   };
   document.addEventListener("visibilitychange", sync);
   reducedMotion.addEventListener("change", sync);
+  window.addEventListener("resize", () => { build(); sync(); });
   new IntersectionObserver(([entry]) => {
     visible = entry.isIntersecting;
     sync();
   }).observe(surface);
+  build();
   sync();
 }
 
@@ -288,41 +327,24 @@ function shapingScene() {
 
 function renderControls() {
   const target = $("controls");
+  $("view-playground").classList.toggle("is-yuuu", state.scene === "geometry" && state.baselineExample === "yuuu");
+  renderExampleSwitch();
   target.replaceChildren();
   if (state.scene === "geometry") {
-    const label = document.createElement("label");
-    label.className = "control";
-    const name = document.createElement("span");
-    name.className = "control-top";
-    name.textContent = "Example";
-    const select = document.createElement("select");
-    for (const [value, text] of [["draw", "Free draw"], ["odyssey", "Odyssey · Ithaca"]]) {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = text;
-      select.append(option);
-    }
-    select.value = state.baselineExample;
-    select.addEventListener("change", () => {
-      select.disabled = true;
-      selectBaselineExample(select.value);
-    });
-    label.append(name, select);
-    target.append(label);
-    if (state.baselineExample === "odyssey") {
+    if (state.baselineExample === "yuuu") {
       const source = document.createElement("a");
       source.className = "example-source";
       source.href = ODYSSEY_SOURCE;
       source.target = "_blank";
       source.rel = "noreferrer";
-      source.textContent = "Homer · Odyssey 9.21–28 ↗";
+      source.textContent = "Homer · Book 9, 21–28 ↗";
       target.append(source);
     }
   }
   for (const definition of controls) {
     if (definition.only && definition.only !== state.scene) continue;
     if (state.scene === "geometry" && !["fontSize", "geometryOverflow", "alignment", "letterSpacing", "wordSpacing", "smoothing", "motionEnabled", "motionDepth", "motionSpeed"].includes(definition.key)) continue;
-    if (state.baselineExample === "odyssey" && definition.key === "smoothing") continue;
+    if (state.baselineExample === "yuuu" && definition.key === "smoothing") continue;
     if (definition.needs === "shaping" && !shapingScene()) continue;
     if (definition.needs === "bidi" && ["core", "unicode"].includes(state.scene)) continue;
     const label = document.createElement("label");
@@ -371,6 +393,19 @@ function renderControls() {
       label.append(name, input);
     }
     target.append(label);
+  }
+}
+
+function renderExampleSwitch() {
+  const visible = state.scene === "geometry";
+  $("baseline-examples").hidden = !visible;
+  $("detail-column").classList.toggle("has-example-switch", visible);
+  for (const example of ["draw", "yuuu"]) {
+    const button = $(`example-${example}`);
+    const active = state.baselineExample === example;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
+    button.disabled = exampleLoading;
   }
 }
 
@@ -440,11 +475,16 @@ function schedule() {
 
 function sceneOptions() {
   if (state.scene !== "geometry") return {...state.options, path: null};
+  const pathBounds = state.baselineExample === "yuuu" ? state.portrait?.viewBox : null;
+  const projection = stage.projection(stage.canvas.clientWidth, stage.canvas.clientHeight, {
+    fontSize: state.options.fontSize, example: state.baselineExample, pathBounds,
+  }, true);
   return {
     ...state.options,
-    pathSampled: state.baselineExample === "odyssey",
+    pathSampled: state.baselineExample === "yuuu",
     example: state.baselineExample,
-    pathBounds: state.baselineExample === "odyssey" ? state.portrait?.viewBox : null,
+    pathBounds,
+    pathScale: projection.fit,
     overflow: state.options.geometryOverflow,
     motionDepth: state.options.motionEnabled && !reducedMotion.matches && !stage.drawing ? state.options.motionDepth : 0,
   };
@@ -549,6 +589,7 @@ async function initialize() {
 }
 
 for (const tab of document.querySelectorAll(".view-tab")) tab.addEventListener("click", () => switchView(tab.dataset.view));
+for (const example of ["draw", "yuuu"]) $("example-" + example).addEventListener("click", () => selectBaselineExample(example));
 $("source").addEventListener("input", schedule);
 $("show-boxes").addEventListener("change", schedule);
 $("show-carets").addEventListener("change", schedule);
@@ -583,5 +624,5 @@ $("download-zip").addEventListener("click", () => {
     toast(`Archive failed: ${error}`);
   }
 });
-new ResizeObserver(() => stage.redraw()).observe($("stage").parentElement);
+new ResizeObserver(() => state.scene === "geometry" ? refresh() : stage.redraw()).observe($("stage").parentElement);
 initialize();

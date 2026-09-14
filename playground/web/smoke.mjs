@@ -1,7 +1,7 @@
 import {readFileSync} from "node:fs";
 import init, {analyze_scene, feature_catalog, scene_catalog, scaffold_files, zip_files} from "./pkg/textflow_playground.js";
 import {FeatureGraph} from "./features.js";
-import {stageSummary} from "./stage.js";
+import {Stage, stageSummary} from "./stage.js";
 import {rustTokens} from "./rust-highlight.js";
 
 const snippet = 'let value = TextFlow::new("<tag>", 12); // safe\n';
@@ -10,6 +10,33 @@ if (tokens.map((token) => token.text).join("") !== snippet) throw new Error("Rus
 for (const kind of ["keyword", "type", "string", "number", "comment"]) {
   if (!tokens.some((token) => token.kind === kind)) throw new Error(`Missing Rust token kind: ${kind}`);
 }
+
+const layout = {
+  geometry: false,
+  lines: [{origin: [0, 0]}],
+  runs: [{glyphs: [0, 1]}],
+  glyphs: [{origin: [0, 0], offset: [0, 0], advance: [2000, 0], character: "A"}],
+  carets: [],
+};
+function paint(overflow) {
+  const calls = [];
+  const ctx = new Proxy({}, {
+    get: (_, method) => (...args) => calls.push([method, ...args]),
+    set: () => true,
+  });
+  const stage = {
+    projection: Stage.prototype.projection,
+    canvas: {clientHeight: 200},
+    palette: {line: "#888", muted: "#888", runs: ["#888"]},
+    hitboxes: [],
+  };
+  Stage.prototype.layout.call(stage, ctx, 600, layout, {fontSize: 32, width: 32, overflow}, {boxes: false, carets: false});
+  return {calls, hitboxes: stage.hitboxes};
+}
+const clipped = paint("clip");
+if (!clipped.calls.some(([method]) => method === "clip")) throw new Error("Clip did not constrain canvas paint");
+if (clipped.hitboxes[0].x !== 29 || clipped.hitboxes[0].width !== 32) throw new Error("Clip did not constrain hit testing");
+if (paint("ellipsis").calls.some(([method]) => method === "clip")) throw new Error("Ellipsis was clipped twice");
 
 await init({module_or_path: readFileSync(new URL("./pkg/textflow_playground_bg.wasm", import.meta.url))});
 const features = feature_catalog();

@@ -123,7 +123,7 @@ mod tests {
             "geometry",
             "Lorem",
             &Options {
-                path: Some(vec![[0, 3000], [2500, 2000], [5500, 3600], [9000, 2600]]),
+                path: Some(vec![[0, 96], [80, 64], [176, 116], [288, 84]]),
                 ..Options::default()
             },
         );
@@ -131,8 +131,69 @@ mod tests {
         let json = serde_json::to_value(result).unwrap();
         let path = json["data"]["baselines"][0].as_array().unwrap();
         assert_eq!(path.first().unwrap(), &serde_json::json!([0, 3000]));
-        assert_eq!(path.last().unwrap(), &serde_json::json!([9000, 2600]));
+        assert_eq!(path.last().unwrap(), &serde_json::json!([9000, 2625]));
         assert!(json["data"]["glyphs"][0]["frame"].is_object());
+    }
+
+    #[test]
+    fn changing_font_size_keeps_the_curve_in_path_space() {
+        let path = Some(vec![[0, 96], [80, 64], [176, 116], [288, 84]]);
+        let mut projected = Vec::new();
+        for font_size in [24, 48] {
+            let result = analyze(
+                "geometry",
+                "Lorem",
+                &Options {
+                    font_size,
+                    path: path.clone(),
+                    ..Options::default()
+                },
+            );
+            assert!(result.ok);
+            let json = serde_json::to_value(result).unwrap();
+            let points = json["data"]["baselines"][0].as_array().unwrap();
+            projected.push(
+                points
+                    .iter()
+                    .map(|point| {
+                        point
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .map(|value| value.as_i64().unwrap() * i64::from(font_size) / 1000)
+                            .collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>(),
+            );
+        }
+        for (left, right) in projected[0].iter().zip(&projected[1]) {
+            assert!((left[0] - right[0]).abs() <= 1);
+            assert!((left[1] - right[1]).abs() <= 1);
+        }
+    }
+
+    #[test]
+    fn default_curve_holds_the_sample_at_every_font_size() {
+        let sample = SCENES
+            .iter()
+            .find(|scene| scene.id == "geometry")
+            .unwrap()
+            .sample;
+        for font_size in [16, 32, 48, 64] {
+            let result = analyze(
+                "geometry",
+                sample,
+                &Options {
+                    font_size,
+                    ..Options::default()
+                },
+            );
+            assert!(
+                result.ok,
+                "{font_size}: {:?}",
+                result.error.map(|error| error.message)
+            );
+        }
     }
 
     #[test]
@@ -143,7 +204,7 @@ mod tests {
             "geometry",
             "Lorem ipsum dolor sit amet.",
             &Options {
-                path: Some(vec![[0, 2000], [1000, 2000]]),
+                path: Some(vec![[0, 64], [32, 64]]),
                 ..Options::default()
             },
         );

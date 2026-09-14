@@ -136,7 +136,7 @@ pub const SCENES: &[SceneSpec] = &[
         id: "geometry",
         label: "Baselines",
         requires: &["shaping"],
-        sample: "Lorem ipsum dolor sit amet.",
+        sample: "Lorem ipsum",
         description: "Draw a curve and place type along it.",
     },
 ];
@@ -207,7 +207,6 @@ pub struct LayoutView {
     pub glyphs: Vec<Glyph>,
     pub carets: Vec<Caret>,
     pub runs: Vec<VisualRunView>,
-    pub em_scale: f32,
     pub private_bytes: Option<usize>,
     pub output_bytes: usize,
     pub synthetic_font: bool,
@@ -356,14 +355,18 @@ fn to_units(pixels: u32, font_size: u32) -> usize {
 }
 
 const DEFAULT_PATH: [[i32; 2]; 7] = [
-    [300, 3100],
-    [3000, 1900],
-    [6100, 2600],
-    [8900, 4200],
-    [12_000, 3800],
-    [15_500, 2200],
-    [19_000, 2700],
+    [10, 100],
+    [96, 60],
+    [195, 82],
+    [285, 135],
+    [385, 120],
+    [495, 70],
+    [610, 86],
 ];
+
+fn path_units(value: i32, font_size: u32) -> i32 {
+    (f64::from(value) * f64::from(UNITS_PER_EM) / f64::from(font_size.clamp(12, 96))).round() as i32
+}
 
 fn smooth_path(options: &Options) -> Result<Vec<FlowPoint>, Failure> {
     let samples = options.path.as_deref().unwrap_or(&DEFAULT_PATH);
@@ -379,27 +382,19 @@ fn smooth_path(options: &Options) -> Result<Vec<FlowPoint>, Failure> {
         });
     }
     let mut points = Vec::with_capacity(samples.len() * 2);
-    points.push(FlowPoint {
-        x: samples[0][0],
-        y: samples[0][1],
-    });
+    let to_point = |x, y| FlowPoint {
+        x: path_units(x, options.font_size),
+        y: path_units(y, options.font_size),
+    };
+    points.push(to_point(samples[0][0], samples[0][1]));
     for segment in samples.windows(2) {
         let a = segment[0];
         let b = segment[1];
-        points.push(FlowPoint {
-            x: (3 * a[0] + b[0]) / 4,
-            y: (3 * a[1] + b[1]) / 4,
-        });
-        points.push(FlowPoint {
-            x: (a[0] + 3 * b[0]) / 4,
-            y: (a[1] + 3 * b[1]) / 4,
-        });
+        points.push(to_point((3 * a[0] + b[0]) / 4, (3 * a[1] + b[1]) / 4));
+        points.push(to_point((a[0] + 3 * b[0]) / 4, (a[1] + 3 * b[1]) / 4));
     }
     let last = samples[samples.len() - 1];
-    points.push(FlowPoint {
-        x: last[0],
-        y: last[1],
-    });
+    points.push(to_point(last[0], last[1]));
     Ok(points)
 }
 
@@ -589,7 +584,6 @@ fn layout(scene: &str, text: &str, options: &Options) -> Result<Data, Failure> {
         return Ok(Data::Layout(view(
             text,
             &result,
-            font_size,
             Some(workspace.resident_bytes()),
             output_bytes,
             None,
@@ -639,7 +633,6 @@ fn layout(scene: &str, text: &str, options: &Options) -> Result<Data, Failure> {
     Ok(Data::Layout(view(
         text,
         &result,
-        font_size,
         None,
         output_bytes,
         geometry,
@@ -649,7 +642,6 @@ fn layout(scene: &str, text: &str, options: &Options) -> Result<Data, Failure> {
 fn view(
     text: &str,
     layout: &textflow::ParagraphLayout<'_>,
-    font_size: u32,
     private_bytes: Option<usize>,
     output_bytes: usize,
     geometry: Option<GeometryView<'_>>,
@@ -735,7 +727,6 @@ fn view(
                 }
             })
             .collect(),
-        em_scale: font_size as f32 / f32::from(UNITS_PER_EM),
         private_bytes,
         output_bytes,
         synthetic_font: true,

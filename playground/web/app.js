@@ -48,7 +48,50 @@ const stage = new Stage($("stage"), inspect, (points) => {
   schedule();
 });
 const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 let themeMode = "auto";
+
+function startAtmosphere() {
+  const surface = document.querySelector(".atmosphere");
+  const paths = ["zh", "en", "ja"].map((language) => $(`rights-path-${language}`));
+  const heights = [20, 45, 70];
+  const phases = heights.map(() => Math.random() * Math.PI * 2);
+  let frame = 0;
+  let last = 0;
+  let visible = false;
+  const draw = (time) => {
+    paths.forEach((path, index) => {
+      const y = heights[index];
+      let d = "";
+      for (let x = 0; x <= 640; x += 16) {
+        const wave = 9 * Math.sin(x * .016 + time * .00024 + phases[0])
+          + 4 * Math.sin(x * .037 - time * .00017 + phases[1])
+          + 2 * Math.sin(x * .025 + time * .00011 + phases[2] + index * 1.9);
+        d += `${x ? "L" : "M"}${x} ${(y + wave).toFixed(1)} `;
+      }
+      path.setAttribute("d", d);
+    });
+  };
+  const tick = (time) => {
+    if (time - last >= 33) { draw(time); last = time; }
+    frame = requestAnimationFrame(tick);
+  };
+  const sync = () => {
+    cancelAnimationFrame(frame);
+    frame = 0;
+    draw(reducedMotion.matches ? 0 : performance.now());
+    if (!reducedMotion.matches && !document.hidden && visible) frame = requestAnimationFrame(tick);
+  };
+  document.addEventListener("visibilitychange", sync);
+  reducedMotion.addEventListener("change", sync);
+  new IntersectionObserver(([entry]) => {
+    visible = entry.isIntersecting;
+    sync();
+  }).observe(surface);
+  sync();
+}
+
+startAtmosphere();
 
 try {
   const saved = localStorage.getItem("textflow-theme");
@@ -225,7 +268,14 @@ function renderSceneTabs() {
     button.type = "button";
     button.role = "tab";
     button.textContent = scene.label;
-    button.className = `scene-tab${scene.id === state.scene ? " is-active" : ""}${scene.requires.some((feature) => !state.graph.active(feature)) ? " is-locked" : ""}`;
+    button.className = `scene-tab${scene.id === "geometry" ? " scene-tab-baselines" : ""}${scene.id === state.scene ? " is-active" : ""}${scene.requires.some((feature) => !state.graph.active(feature)) ? " is-locked" : ""}`;
+    if (scene.id === "geometry") {
+      const mark = document.createElement("span");
+      mark.className = "baseline-mark";
+      mark.setAttribute("aria-hidden", "true");
+      mark.innerHTML = '<svg viewBox="0 0 30 15"><path d="M1 12 C7 2 11 3 16 9 S25 13 29 3"/></svg>';
+      button.prepend(mark);
+    }
     button.setAttribute("aria-selected", scene.id === state.scene ? "true" : "false");
     if (scene.requires.length) button.title = `Requires ${scene.requires.join(", ")}`;
     button.addEventListener("click", () => selectScene(scene.id));

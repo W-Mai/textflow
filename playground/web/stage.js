@@ -59,15 +59,19 @@ export class Stage {
 
   setEditable(editable) {
     this.editable = editable;
-    if (!editable) this.drawing = false;
+    if (!editable) {
+      this.drawing = false;
+      this.lastBaseline = null;
+    }
     this.canvas.style.touchAction = editable ? "none" : "";
     this.canvas.style.cursor = editable ? "crosshair" : "default";
   }
 
   projection(width, options, geometry) {
     const emScale = options.fontSize / 1000;
-    const extent = geometry ? 20_000 * emScale : options.width;
-    return {x0: 29, y0: 98, scale: emScale * Math.min(1, (width - 74) / Math.max(1, extent))};
+    const extent = geometry ? 640 : options.width;
+    const fit = Math.min(1, Math.max(1, width - 74) / Math.max(1, extent));
+    return {x0: 29, y0: 98, scale: emScale * fit, fit};
   }
 
   record(event) {
@@ -76,10 +80,10 @@ export class Stage {
     const bounds = this.canvas.getBoundingClientRect();
     const x = Math.max(0, Math.min(bounds.width, event.clientX - bounds.left));
     const y = Math.max(0, Math.min(bounds.height, event.clientY - bounds.top));
-    const {x0, y0, scale} = this.projection(bounds.width, options, true);
-    const point = [Math.max(-30_000, Math.min(30_000, Math.round((x - x0) / scale))), Math.max(-30_000, Math.min(30_000, Math.round((y - y0) / scale)))];
+    const {x0, y0, fit} = this.projection(bounds.width, options, true);
+    const point = [Math.max(-30_000, Math.min(30_000, Math.round((x - x0) / fit))), Math.max(-30_000, Math.min(30_000, Math.round((y - y0) / fit)))];
     const previous = this.samples.at(-1);
-    if (previous && Math.hypot(point[0] - previous[0], point[1] - previous[1]) < 90) return;
+    if (previous && Math.hypot(point[0] - previous[0], point[1] - previous[1]) < 3) return;
     if (this.samples.length >= 64) this.samples = this.samples.filter((_, index) => index % 2 === 0);
     this.samples.push(point);
     this.onPathChange(this.samples.slice());
@@ -104,9 +108,7 @@ export class Stage {
       runs: Array.from({length: 5}, (_, index) => color(`color-${index}`)),
     };
     const data = response?.data;
-    const lineCount = data?.kind === "layout" ? data.lines.length : 0;
-    const height = Math.max(375, Math.min(850, lineCount * 58 + 145));
-    this.canvas.style.height = `${height}px`;
+    const height = Math.max(1, this.canvas.clientHeight);
     const width = Math.max(1, this.canvas.clientWidth);
     const ratio = Math.min(window.devicePixelRatio || 1, 2);
     this.canvas.width = Math.round(width * ratio);
@@ -115,10 +117,19 @@ export class Stage {
     ctx.scale(ratio, ratio);
     this.hitboxes = [];
     this.background(ctx, width, height);
-    if (this.editable && !response?.ok && options.path?.length) {
-      this.curve(ctx, options.path, this.projection(width, options, true), false);
+    if (this.editable && !response?.ok) {
+      if (options.path?.length) {
+        const {x0, y0, fit} = this.projection(width, options, true);
+        this.curve(ctx, options.path, {x0, y0, scale: fit}, false);
+      } else if (this.lastBaseline) {
+        const projection = this.projection(width, {fontSize: this.lastBaseline.fontSize}, true);
+        this.curve(ctx, this.lastBaseline.points, projection);
+      }
     }
     if (!response?.ok || !data) return;
+    if (this.editable && data.kind === "layout" && data.baselines?.[0]) {
+      this.lastBaseline = {points: data.baselines[0], fontSize: options.fontSize};
+    }
     switch (data.kind) {
       case "core": this.core(ctx, width, data); break;
       case "unicode": this.unicode(ctx, width, data); break;
@@ -242,9 +253,19 @@ export class Stage {
   }
 
   layout(ctx, width, data, options, overlays) {
-    const {x0, y0, scale} = this.projection(width, options, data.geometry);
-    const fit = scale / data.emScale;
+    const {x0, y0, scale, fit} = this.projection(width, options, data.geometry);
     const size = Math.max(12, options.fontSize * fit);
+    const clipRight = options.overflow === "clip" && !data.geometry ? x0 + options.width * fit : null;
+    const addHitbox = (box) => {
+      if (clipRight !== null) {
+        const left = Math.max(x0, box.x);
+        const right = Math.min(clipRight, box.x + box.width);
+        if (right <= left) return;
+        box.x = left;
+        box.width = right - left;
+      }
+      this.hitboxes.push(box);
+    };
     const runIndex = (index) => data.runs.findIndex((run) => index >= run.glyphs[0] && index < run.glyphs[1]);
     for (const [index, line] of data.lines.entries()) {
       const baseline = data.baselines?.[index];
@@ -257,6 +278,11 @@ export class Stage {
         ctx.fillStyle = this.palette.muted; ctx.font = "9px ui-monospace, monospace";
         ctx.fillText(String(index + 1).padStart(2, "0"), 8, y - 5);
       }
+    }
+    if (clipRight !== null) {
+      ctx.save();
+      rectangle(ctx, x0, 0, Math.max(0, clipRight - x0), this.canvas.clientHeight);
+      ctx.clip();
     }
     data.glyphs.forEach((glyph, index) => {
       const origin = glyph.frame?.origin ?? [glyph.origin[0] + glyph.offset[0], glyph.origin[1] + glyph.offset[1]];
@@ -282,7 +308,7 @@ export class Stage {
         ctx.fillText(glyph.character || "□", x, y);
       }
       ctx.restore();
-      this.hitboxes.push({x: x - 3, y: y - size, width: Math.max(advance + 6, 15), height: size + 9, value: {type: "glyph", ...glyph, run: runIndex(index)}});
+      addHitbox({x: x - 3, y: y - size, width: Math.max(advance + 6, 15), height: size + 9, value: {type: "glyph", ...glyph, run: runIndex(index)}});
     });
     if (overlays.carets) {
       for (const caret of data.carets) {
@@ -295,8 +321,9 @@ export class Stage {
         if (caret.frame) ctx.rotate(Math.atan2(caret.frame.tangent[1], caret.frame.tangent[0]));
         ctx.beginPath(); ctx.moveTo(.5, -size); ctx.lineTo(.5, 5); ctx.stroke();
         ctx.restore();
-        this.hitboxes.push({x: x - 3, y: y - size, width: 6, height: size + 5, value: {type: "caret", ...caret}});
+        addHitbox({x: x - 3, y: y - size, width: 6, height: size + 5, value: {type: "caret", ...caret}});
       }
     }
+    if (clipRight !== null) ctx.restore();
   }
 }

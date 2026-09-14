@@ -18,5 +18,9 @@ cargo clippy --manifest-path tools/extract-docs/Cargo.toml --all-targets -- -D w
 cargo clippy --manifest-path tools/xtask/Cargo.toml --all-targets -- -D warnings
 cargo run --manifest-path playground/Cargo.toml --bin scaffold_check
 "$repo/tools/build-site.sh"
-for script in "$repo/playground/web/"{app,features,stage,docs,rust-highlight}.js; do node --experimental-default-type=module --check "$script"; done
-node --experimental-default-type=module "$repo/playground/web/smoke.mjs"
+node_command=(node)
+if node --experimental-default-type=module --eval "" >/dev/null 2>&1; then
+  node_command+=(--experimental-default-type=module)
+fi
+for script in "$repo/playground/web/"{app,features,stage,docs,rust-highlight}.js; do "${node_command[@]}" --check "$script"; done
+"${node_command[@]}" "$repo/playground/web/smoke.mjs"

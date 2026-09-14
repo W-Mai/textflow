@@ -29,6 +29,16 @@
 </head>
 <body>
   <div class="page-glow" aria-hidden="true"></div>
+  <svg class="atmosphere" width="1600" height="900" aria-hidden="true" focusable="false">
+    <defs>
+      <path id="rights-path-zh" d="M-80 205 C300 185 570 240 820 210 S1330 190 1680 215"></path>
+      <path id="rights-path-en" d="M-80 445 C300 425 570 480 820 450 S1330 430 1680 455"></path>
+      <path id="rights-path-ja" d="M-80 690 C300 670 570 725 820 695 S1330 675 1680 700"></path>
+    </defs>
+    <text><textPath href="#rights-path-zh" startOffset="12%">人人生而自由，在尊严和权利上一律平等。</textPath></text>
+    <text><textPath href="#rights-path-en" startOffset="33%">All human beings are born free and equal in dignity and rights.</textPath></text>
+    <text><textPath href="#rights-path-ja" startOffset="54%">すべての人間は、生まれながらにして自由であり、かつ、尊厳と権利とについて平等である。</textPath></text>
+  </svg>
   <header class="site-header">
     <a class="brand" href="#playground" aria-label="TextFlow playground home">
       <img src="textflow-logo.svg" alt="TextFlow" width="176" height="44">
@@ -67,14 +77,6 @@
         <section class="view is-active" id="view-playground" role="tabpanel">
           <div class="section-heading">
             <div><span class="section-kicker">PLAYGROUND</span><h2 id="scene-title">Line flow</h2><p id="scene-description">Line breaks and widths.</p></div>
-            <svg class="atmosphere" viewBox="0 0 640 88" aria-hidden="true" focusable="false">
-              <path id="rights-path-zh" d="M0 20 Q160 14 320 20 T640 20"></path>
-              <path id="rights-path-en" d="M0 45 Q160 39 320 45 T640 45"></path>
-              <path id="rights-path-ja" d="M0 70 Q160 64 320 70 T640 70"></path>
-              <text><textPath href="#rights-path-zh" startOffset="3%">人人生而自由，在尊严和权利上一律平等。</textPath></text>
-              <text><textPath href="#rights-path-en" startOffset="4%">All human beings are born free and equal in dignity and rights.</textPath></text>
-              <text><textPath href="#rights-path-ja" startOffset="6%">すべての人間は、生まれながらにして自由であり</textPath></text>
-            </svg>
             <span class="scene-counter" id="scene-counter">01 / 09</span>
           </div>
           <div class="scene-tabs" id="scene-tabs" role="tablist" aria-label="Scenes"></div>

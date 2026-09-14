@@ -55,7 +55,7 @@ assert_eq!(lines, ["A small UI", "can still", "set type", "well."]);
 
 ## Playground
 
-The [browser playground](https://benign.host/textflow/) visualizes line breaks, Unicode clusters, bidi runs, positioned glyphs, carets, script providers, workspace limits, and spline-smoothed baseline placement. Baselines includes freehand curves and an Odyssey portrait example. Its scaffold generates compile-checked examples from the selected Cargo features.
+The [browser playground](https://benign.host/textflow/) visualizes line breaks, Unicode clusters, bidi runs, positioned glyphs, carets, script providers, workspace limits, and spline-smoothed baseline placement. Baselines includes freehand curves, an Odyssey portrait example, and copyable Rust `FlowPoint` slices. Its scaffold generates compile-checked examples from the selected Cargo features using the released crate version.
 
 Local development requires `wasm-pack`, Trunk, and the `wasm32-unknown-unknown` Rust target.
 

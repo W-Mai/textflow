@@ -6,6 +6,13 @@ import {rustTokens} from "./rust-highlight.js";
 import {ODYSSEY_TEXT, samplePath} from "./baseline-examples.js";
 import {formatBaselinePoints} from "./baseline-code.js";
 
+const page = readFileSync(new URL("./index.html", import.meta.url), "utf8");
+const atmosphere = page.match(/<svg class="atmosphere"[\s\S]*?<\/svg>/)?.[0];
+if (!atmosphere?.includes("<defs>") || !atmosphere.includes("<textPath")
+  || page.indexOf(atmosphere) > page.indexOf("<header class=\"site-header\"")) {
+  throw new Error("Atmospheric text is not a page-level path substrate");
+}
+
 const pointCode = formatBaselinePoints([[12, -8], [80, 24]]);
 if (!pointCode.includes("const POINTS: &[FlowPoint]") || !pointCode.includes("FlowPoint { x: 12, y: -8 }")
   || pointCode !== formatBaselinePoints([[12, -8], [80, 24]])) {

@@ -11,6 +11,7 @@
 - A Trunk-built Playground site is configured for GitHub Pages.
 - The Playground carries multilingual text on gently evolving curves and highlights the Baselines scene.
 - The Baselines scene smooths drawn paths, animates glyph placement, and exposes path and text controls.
+- Baseline curves can be copied as static Rust `FlowPoint` slices.
 
 ### Fixed
 
@@ -19,6 +20,7 @@
 - Baseline font size no longer scales the drawn curve; clipped layout output respects the viewport width.
 - Desktop panels fit the viewport with independent scrolling for longer content.
 - Baseline bounds follow glyph rotation and ink dimensions; short paths apply clip or ellipsis overflow.
+- Scaffold examples use the released crate version, and the multilingual page background renders text without visible guide curves.
 
 ## [0.3.0] - 2026-09-13
 

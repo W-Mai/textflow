@@ -108,7 +108,7 @@ let themeMode = "auto";
 function startAtmosphere() {
   const surface = document.querySelector(".atmosphere");
   const paths = ["zh", "en", "ja"].map((language) => $(`rights-path-${language}`));
-  const heights = [20, 45, 70];
+  const heights = [205, 445, 690];
   const phases = heights.map(() => Math.random() * Math.PI * 2);
   let frame = 0;
   let last = 0;
@@ -116,14 +116,8 @@ function startAtmosphere() {
   const draw = (time) => {
     paths.forEach((path, index) => {
       const y = heights[index];
-      let d = "";
-      for (let x = 0; x <= 640; x += 16) {
-        const wave = 9 * Math.sin(x * .016 + time * .00024 + phases[0])
-          + 4 * Math.sin(x * .037 - time * .00017 + phases[1])
-          + 2 * Math.sin(x * .025 + time * .00011 + phases[2] + index * 1.9);
-        d += `${x ? "L" : "M"}${x} ${(y + wave).toFixed(1)} `;
-      }
-      path.setAttribute("d", d);
+      const wave = (step, depth) => Number((depth * Math.sin(time * .00016 + phases[index] + step)).toFixed(1));
+      path.setAttribute("d", `M-80 ${y + wave(0, 5)} C300 ${y + wave(.6, 18)} 570 ${y + wave(1.4, 18)} 820 ${y + wave(2.2, 6)} S1330 ${y + wave(3.2, 18)} 1680 ${y + wave(4, 7)}`);
     });
   };
   const tick = (time) => {

@@ -4,6 +4,7 @@
 
 ### Added
 
+- Glyph layout demonstrates Latin pair kerning and fi/fl ligatures through its synthetic font adapter.
 - Free draw opens with a spring-timed near-square heart; its guide clears behind the tip unless Show curve is enabled.
 - A Playground budget panel reports feature-specific reference WASM sizes, memory capacities, metered work, and browser-measured throughput.
 
@@ -14,6 +15,7 @@
 
 ### Changed
 
+- Free draw defaults to end alignment and morphs hand-drawn paths into the reset heart; other scenes retain their alignment and font size.
 - Baseline and atmospheric motion follow display refresh timing; repeated frames reuse glyph metrics and canvas backing storage.
 - Clicking the yuuu canvas briefly highlights Free draw without switching examples.
 - The Playground opens on the yuuu Baselines example.

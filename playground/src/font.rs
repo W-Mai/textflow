@@ -1,7 +1,9 @@
 use textflow::shaping::{
-    FlowPoint, FontAccessError, FontId, FontMetrics, GlyphBuffer, GlyphId, GlyphSource,
-    LookupRequest, LookupStatus, ShapeError, ShapingData,
+    FlowPoint, FontAccessError, FontId, FontMetrics, GlyphBuffer, GlyphId, GlyphMask, GlyphSource,
+    LookupRequest, LookupStatus, ScriptProvider, ShapeError, ShapeRequest, ShapedGlyph,
+    ShapingData, TextRange,
 };
+use textflow::unicode::Script;
 
 pub const UNITS_PER_EM: u16 = 1000;
 
@@ -36,6 +38,7 @@ impl GlyphSource for DemoFont {
     fn glyph_advance(&self, glyph: GlyphId) -> Result<FlowPoint, FontAccessError> {
         let width = match character(glyph) {
             Some(' ' | '\t') => 300,
+            Some('\u{FB01}' | '\u{FB02}') => 1020,
             Some(
                 '\u{0300}'..='\u{036F}'
                 | '\u{0591}'..='\u{05BD}'
@@ -56,12 +59,89 @@ impl GlyphSource for DemoFont {
 
 pub struct DemoShaping;
 
+pub struct DemoLatin;
+
+fn enabled(request: &ShapeRequest<'_>, tag: [u8; 4], default: bool) -> bool {
+    request
+        .features
+        .iter()
+        .filter(|feature| {
+            feature.tag == tag
+                && feature.range.end > request.range.start as u32
+                && feature.range.start < request.range.end as u32
+        })
+        .fold(default, |_, feature| feature.value != 0)
+}
+
+impl ScriptProvider for DemoLatin {
+    fn script(&self) -> Script {
+        Script::Latin
+    }
+
+    fn substitute(
+        &self,
+        request: &ShapeRequest<'_>,
+        font: &dyn ShapingData,
+        glyphs: &mut GlyphBuffer<'_>,
+    ) -> Result<(), ShapeError> {
+        if enabled(request, *b"liga", true) {
+            font.substitute(
+                LookupRequest::new(request, *b"liga", GlyphMask::ALL),
+                glyphs,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn position(
+        &self,
+        request: &ShapeRequest<'_>,
+        font: &dyn ShapingData,
+        glyphs: &mut GlyphBuffer<'_>,
+    ) -> Result<(), ShapeError> {
+        if enabled(request, *b"kern", true) {
+            font.position(
+                LookupRequest::new(request, *b"kern", GlyphMask::ALL),
+                glyphs,
+            )?;
+        }
+        Ok(())
+    }
+}
+
 impl ShapingData for DemoShaping {
     fn substitute(
         &self,
         request: LookupRequest<'_, '_>,
         glyphs: &mut GlyphBuffer<'_>,
     ) -> Result<LookupStatus, ShapeError> {
+        if request.feature() == *b"liga" {
+            let mut index = 0;
+            let mut applied = false;
+            while index + 1 < glyphs.len() {
+                let left = *glyphs.get(index).ok_or(ShapeError::InvalidGlyphRange)?;
+                let right = *glyphs.get(index + 1).ok_or(ShapeError::InvalidGlyphRange)?;
+                let ligature = match (character(left.glyph_id()), character(right.glyph_id())) {
+                    (Some('f'), Some('i')) => Some(0xFB01),
+                    (Some('f'), Some('l')) => Some(0xFB02),
+                    _ => None,
+                };
+                if let Some(glyph) = ligature {
+                    let replacement = ShapedGlyph::new(
+                        GlyphId::new(glyph),
+                        TextRange::new(left.cluster.start, right.cluster.end),
+                    );
+                    glyphs.replace(index..index + 2, &[replacement])?;
+                    applied = true;
+                }
+                index += 1;
+            }
+            return Ok(if applied {
+                LookupStatus::Applied
+            } else {
+                LookupStatus::NotFound
+            });
+        }
         let form = match request.feature() {
             [b'i', b's', b'o', b'l'] => 0,
             [b'f', b'i', b'n', b'a'] => 1,
@@ -100,6 +180,36 @@ impl ShapingData for DemoShaping {
         request: LookupRequest<'_, '_>,
         glyphs: &mut GlyphBuffer<'_>,
     ) -> Result<LookupStatus, ShapeError> {
+        if request.feature() == *b"kern" {
+            let mut applied = false;
+            for index in 1..glyphs.len() {
+                let left = glyphs
+                    .get(index - 1)
+                    .and_then(|glyph| character(glyph.glyph_id()));
+                let right = glyphs
+                    .get(index)
+                    .and_then(|glyph| character(glyph.glyph_id()));
+                let adjustment = match (left, right) {
+                    (Some('A'), Some('V' | 'W' | 'Y' | 'v')) => -180,
+                    (Some('T'), Some('o' | 'a' | 'e')) => -150,
+                    (Some('W'), Some('a' | 'o')) => -120,
+                    _ => 0,
+                };
+                if adjustment != 0 {
+                    glyphs
+                        .get_mut(index - 1)
+                        .ok_or(ShapeError::InvalidGlyphRange)?
+                        .advance
+                        .x += adjustment;
+                    applied = true;
+                }
+            }
+            return Ok(if applied {
+                LookupStatus::Applied
+            } else {
+                LookupStatus::NotFound
+            });
+        }
         if ![*b"mark", *b"mkmk", *b"abvm", *b"blwm"].contains(&request.feature()) {
             return Ok(LookupStatus::NotFound);
         }

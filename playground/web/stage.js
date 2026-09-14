@@ -127,6 +127,12 @@ export class Stage {
   }
 
   projection(width, height, options, geometry) {
+    if (geometry && options.pathBounds && options.pathTransition != null) {
+      const from = this.projection(width, height, {...options, pathBounds: null, pathTransition: null}, true);
+      const to = this.projection(width, height, {...options, pathTransition: null}, true);
+      return Object.fromEntries(Object.keys(to).map((key) =>
+        [key, from[key] + (to[key] - from[key]) * options.pathTransition]));
+    }
     const emScale = options.fontSize / 1000;
     if (geometry && options.pathBounds) {
       const [left, top, boxWidth, boxHeight] = options.pathBounds;
@@ -174,7 +180,7 @@ export class Stage {
     const x = Math.max(0, Math.min(bounds.width, event.clientX - bounds.left));
     const y = Math.max(0, Math.min(bounds.height, event.clientY - bounds.top));
     const {x0, y0, fit} = this.projection(bounds.width, bounds.height,
-      this.editable ? {...options, pathBounds: null} : options, true);
+      this.editable ? {...options, pathBounds: null, pathTransition: null} : options, true);
     const point = [Math.max(-30_000, Math.min(30_000, Math.round((x - x0) / fit))), Math.max(-30_000, Math.min(30_000, Math.round((y - y0) / fit)))];
     const previous = this.samples.at(-1);
     if (previous && Math.hypot(point[0] - previous[0], point[1] - previous[1]) < 3) return;
@@ -236,7 +242,7 @@ export class Stage {
       case "core": this.core(ctx, width, data, options, guide); break;
       case "unicode": this.unicode(ctx, width, data); break;
       case "bidi": this.bidi(ctx, width, data, source); break;
-      case "layout": this.layout(ctx, width, data, options, overlays); break;
+      case "layout": this.layout(ctx, width, data, options, overlays, response.scene); break;
     }
     if (guide) {
       const columns = data.kind === "core" ? ` · ${Math.max(1, Math.floor(options.width / 16))} COL` : "";
@@ -495,7 +501,7 @@ export class Stage {
     }
   }
 
-  layout(ctx, width, data, options, overlays) {
+  layout(ctx, width, data, options, overlays, scene) {
     const {x0, y0, scale, fit} = this.projection(width, this.canvas.clientHeight, options, data.geometry);
     const reveal = data.geometry && options.example === "draw" ? options.reveal ?? 1 : 1;
     const textReveal = reveal < 1 ? Math.max(0, (reveal - .12) / .88) : 1;
@@ -521,7 +527,7 @@ export class Stage {
       this.hitboxes.push(box);
     };
     const runIndex = (index) => data.runs.findIndex((run) => index >= run.glyphs[0] && index < run.glyphs[1]);
-    const font = options.example === "yuuu"
+    const font = options.example === "yuuu" || scene === "shaping"
       ? `${Math.round(size)}px "Times New Roman", Georgia, serif`
       : `${Math.round(size)}px ui-monospace, SFMono-Regular, Menlo, monospace`;
     if (this.metricFont !== font || !this.metrics) {
@@ -558,10 +564,13 @@ export class Stage {
     this.visibleGlyphs = glyphs.filter(shown).length;
     for (const [index, line] of data.lines.entries()) {
       const baseline = data.baselines?.[index];
-      if (baseline && options.example === "draw" && (options.showCurve || reveal < 1)) {
+      if (baseline && options.example === "draw" && (options.showCurve || reveal < 1 || options.pathTransition != null)) {
         ctx.save();
         const projection = {x0, y0, scale};
-        if (options.showCurve) this.curve(ctx, baseline, projection, true, reveal);
+        if (options.showCurve || options.pathTransition != null) {
+          if (!options.showCurve) ctx.globalAlpha = Math.min(1, (1 - options.pathTransition) * 4);
+          this.curve(ctx, baseline, projection, true, reveal);
+        }
         else {
           const tail = Math.max(0, reveal - Math.min(.22, 1 - reveal));
           for (let segment = 0; segment < 5; segment++) {

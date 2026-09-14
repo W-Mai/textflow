@@ -78,6 +78,39 @@ mod tests {
     }
 
     #[test]
+    fn latin_controls_change_glyph_count_and_pair_spacing() {
+        let plain = analyze(
+            "shaping",
+            "AV fi fl",
+            &Options {
+                kern: false,
+                liga: false,
+                ..Options::default()
+            },
+        );
+        let shaped = analyze(
+            "shaping",
+            "AV fi fl",
+            &Options {
+                kern: true,
+                liga: true,
+                ..Options::default()
+            },
+        );
+        assert!(plain.ok && shaped.ok);
+        let plain = serde_json::to_value(plain).unwrap();
+        let shaped = serde_json::to_value(shaped).unwrap();
+        let before = plain["data"]["glyphs"].as_array().unwrap();
+        let after = shaped["data"]["glyphs"].as_array().unwrap();
+        assert_eq!(before.len() - after.len(), 2);
+        assert!(
+            after[0]["advance"][0].as_i64().unwrap() < before[0]["advance"][0].as_i64().unwrap()
+        );
+        assert!(after.iter().any(|glyph| glyph["id"] == 0xFB01));
+        assert!(after.iter().any(|glyph| glyph["id"] == 0xFB02));
+    }
+
+    #[test]
     fn core_width_control_reaches_cjk_breaks() {
         let result = analyze(
             "core",

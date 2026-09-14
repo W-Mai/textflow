@@ -80,7 +80,7 @@ Glyphs are in visual order; cluster ranges address the original UTF-8 text. Widt
 
 ## Playground
 
-The [browser playground](https://benign.host/textflow/) visualizes line breaks, Unicode clusters, bidi runs, positioned glyphs, carets, script providers, workspace limits, and spline-smoothed baseline placement. Baselines includes freehand curves, an Odyssey portrait example, and copyable Rust `FlowPoint` slices. Its scaffold generates compile-checked examples from the selected Cargo features using the released crate version. A budget panel shows reference WASM size, memory capacities, metered work, and browser-measured throughput.
+The [browser playground](https://benign.host/textflow/) visualizes line breaks, Unicode clusters, bidi runs, positioned glyphs, carets, script providers, workspace limits, and spline-smoothed baseline placement. Glyph layout contrasts kerning and fi/fl ligatures in the synthetic demo font. Baselines includes freehand curves, an Odyssey portrait example, and copyable Rust `FlowPoint` slices. Its scaffold generates compile-checked examples from the selected Cargo features using the released crate version. A budget panel shows reference WASM size, memory capacities, metered work, and browser-measured throughput.
 
 Local development requires `wasm-pack`, Trunk, and the `wasm32-unknown-unknown` Rust target.
 

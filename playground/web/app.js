@@ -3,7 +3,7 @@ import { Stage, VIEWPORT_WIDTH, stageSummary } from "./stage.js";
 import { DocsView } from "./docs.js";
 import { renderCode, renderRust } from "./code-highlight.js";
 import { BudgetView } from "./budget.js";
-import { HEART_BOUNDS, HEART_PATH, loadPortrait, ODYSSEY_SOURCE, ODYSSEY_TEXT } from "./baseline-examples.js";
+import { HEART_BOUNDS, HEART_PATH, loadPortrait, matchPath, ODYSSEY_SOURCE, ODYSSEY_TEXT } from "./baseline-examples.js";
 import { formatBaselinePoints } from "./baseline-code.js";
 import { buildTiles, glyphTarget, revealPulse, stepGlyph } from "./atmosphere.js";
 
@@ -23,11 +23,13 @@ const state = {
   descriptions: new Map(),
   baselineExample: "draw",
   baselineDrafts: {draw: null, yuuu: null},
+  standardAlignment: "start",
+  standardFontSize: 32,
   portrait: null,
   options: {
     width: 480, fontSize: 32, lineHeight: 42, lineSpacing: 8,
     direction: "auto", wrap: "word", alignment: "start", overflow: "clip",
-    maxLines: 12, letterSpacing: 0, wordSpacing: 0, kern: false,
+    maxLines: 12, letterSpacing: 0, wordSpacing: 0, kern: false, liga: true,
     textLimit: 4096, memoryLimit: 131072,
     path: HEART_PATH, showCurve: false, smoothing: 2, motionDepth: 8, motionPhase: 0,
     motionEnabled: true, motionSpeed: 0.7, geometryOverflow: "ellipsis",
@@ -47,7 +49,8 @@ const controls = [
   {key: "maxLines", label: "Maximum lines", type: "range", min: 1, max: 20, step: 1, needs: "shaping"},
   {key: "letterSpacing", label: "Letter spacing · units", type: "range", min: -80, max: 180, step: 10, needs: "shaping"},
   {key: "wordSpacing", label: "Word spacing · units", type: "range", min: -100, max: 250, step: 10, needs: "shaping"},
-  {key: "kern", label: "Enable kern feature", type: "check", needs: "shaping"},
+  {key: "kern", label: "Kerning", type: "check", only: "shaping"},
+  {key: "liga", label: "Ligatures", type: "check", only: "shaping"},
   {key: "showCurve", label: "Show curve", type: "check", only: "geometry"},
   {key: "smoothing", label: "Smoothing", type: "range", min: 0, max: 4, step: 1, only: "geometry"},
   {key: "motionEnabled", label: "Animate curve", type: "check", only: "geometry"},
@@ -99,6 +102,7 @@ async function selectBaselineExample(example) {
     state.baselineDrafts[example] = draft;
   }
   restoreBaseline(draft);
+  resetMorph = null;
   drawRevealStart = example === "draw" && draft.path === HEART_PATH && !reducedMotion.matches ? performance.now() : 0;
   stage.setEditable(example === "draw");
   $("reset-path").hidden = example !== "draw";
@@ -112,17 +116,20 @@ async function selectBaselineExample(example) {
 let exampleLoading = false;
 let freeDrawInviteTimer;
 let drawRevealStart = 0;
+let resetMorph = null;
 const DRAW_REVEAL_MS = 1800;
+const RESET_MORPH_MS = 720;
 const DRAW_SPRING_END = 1 - 1.5 * Math.exp(-6) + 0.5 * Math.exp(-18);
 
-function drawSpringProgress(elapsed) {
-  const time = Math.max(0, Math.min(1, elapsed / DRAW_REVEAL_MS));
+function springProgress(elapsed, duration) {
+  const time = Math.max(0, Math.min(1, elapsed / duration));
   return (1 - 1.5 * Math.exp(-6 * time) + 0.5 * Math.exp(-18 * time)) / DRAW_SPRING_END;
 }
 let toastTimer;
 let updateFrame;
 const stage = new Stage($("stage"), inspect, (points) => {
   drawRevealStart = 0;
+  resetMorph = null;
   state.options.path = points;
   schedule();
 }, setViewportWidth);
@@ -269,7 +276,7 @@ let baselineFrame = 0;
 let baselineTime = 0;
 let baselineVisible = false;
 function baselineActive() {
-  return state.scene === "geometry" && baselineVisible && (state.options.motionEnabled || drawRevealStart)
+  return state.scene === "geometry" && baselineVisible && (state.options.motionEnabled || drawRevealStart || resetMorph)
     && !reducedMotion.matches && !document.hidden && $("view-playground").classList.contains("is-active");
 }
 function baselineTick(time) {
@@ -278,9 +285,11 @@ function baselineTick(time) {
   baselineTime = time;
   if (!stage.drawing) {
     const revealFinished = drawRevealStart && time - drawRevealStart >= DRAW_REVEAL_MS;
+    const morphFinished = resetMorph && time - resetMorph.start >= RESET_MORPH_MS;
     if (revealFinished) drawRevealStart = 0;
+    if (morphFinished) resetMorph = null;
     if (state.options.motionEnabled) state.options.motionPhase = (state.options.motionPhase + elapsed * state.options.motionSpeed) % (200 * Math.PI);
-    refresh(!revealFinished);
+    refresh(!revealFinished && !morphFinished);
   }
   if (baselineActive()) baselineFrame = requestAnimationFrame(baselineTick);
   else { baselineFrame = 0; baselineTime = 0; }
@@ -468,6 +477,7 @@ function renderControls() {
       input.addEventListener("input", () => {
         if (definition.key === "width") return setViewportWidth(Number(input.value));
         state.options[definition.key] = Number(input.value);
+        if (definition.key === "fontSize" && state.scene !== "geometry") state.standardFontSize = Number(input.value);
         output.textContent = Number(input.value).toLocaleString();
         schedule();
       });
@@ -483,6 +493,7 @@ function renderControls() {
       input.value = state.options[definition.key];
       input.addEventListener("change", () => {
         state.options[definition.key] = input.value;
+        if (definition.key === "alignment" && state.scene !== "geometry") state.standardAlignment = input.value;
         schedule();
       });
       label.append(top, input);
@@ -567,7 +578,7 @@ function selectScene(id) {
   const scene = state.scenes.find((item) => item.id === id);
   if (!scene) return;
   if (state.scene === "geometry") state.baselineDrafts[state.baselineExample] = captureBaseline();
-  if (id !== "geometry") drawRevealStart = 0;
+  if (id !== "geometry") { drawRevealStart = 0; resetMorph = null; }
   for (const feature of scene.requires) state.graph.enable(feature);
   state.scene = id;
   stage.setEditable(id === "geometry" && state.baselineExample === "draw");
@@ -575,7 +586,13 @@ function selectScene(id) {
   $("copy-points").hidden = id !== "geometry";
   const baselineDraft = state.baselineDrafts[state.baselineExample];
   if (id === "geometry" && baselineDraft) restoreBaseline(baselineDraft);
-  else $("source").value = scene.sample;
+  else {
+    if (id !== "geometry") {
+      state.options.alignment = state.standardAlignment;
+      state.options.fontSize = state.standardFontSize;
+    }
+    $("source").value = scene.sample;
+  }
   $("scene-title").textContent = scene.label;
   $("scene-description").textContent = scene.description;
   $("scene-counter").textContent = `${String(state.scenes.indexOf(scene) + 1).padStart(2, "0")} / ${String(state.scenes.length).padStart(2, "0")}`;
@@ -594,18 +611,23 @@ function schedule() {
 function sceneOptions() {
   if (state.scene !== "geometry") return {...state.options, path: null};
   const revealElapsed = drawRevealStart && !reducedMotion.matches ? performance.now() - drawRevealStart : Infinity;
+  const transition = resetMorph ? springProgress(performance.now() - resetMorph.start, RESET_MORPH_MS) : null;
   const pathBounds = state.baselineExample === "yuuu" ? state.portrait?.viewBox
     : state.options.path === HEART_PATH ? HEART_BOUNDS : null;
   const projection = stage.projection(stage.canvas.clientWidth, stage.canvas.clientHeight, {
     fontSize: state.options.fontSize, example: state.baselineExample, pathBounds,
+    pathTransition: transition,
   }, true);
   return {
     ...state.options,
+    path: resetMorph ? HEART_PATH.map((point, index) => point.map((value, axis) =>
+      Math.round(resetMorph.from[index][axis] + (value - resetMorph.from[index][axis]) * transition))) : state.options.path,
+    pathTransition: transition,
     pathSampled: state.baselineExample === "yuuu",
     example: state.baselineExample,
     pathBounds,
     pathScale: projection.fit,
-    reveal: drawSpringProgress(revealElapsed),
+    reveal: springProgress(revealElapsed, DRAW_REVEAL_MS),
     overflow: state.options.geometryOverflow,
     motionDepth: state.options.motionEnabled && !reducedMotion.matches && !stage.drawing ? state.options.motionDepth : 0,
   };
@@ -718,9 +740,12 @@ async function initialize() {
     } else {
       if (portrait.status === "fulfilled") {
         state.portrait = portrait.value;
-        state.baselineDrafts.draw = {...captureBaseline(), text: state.scenes.find((scene) => scene.id === "geometry").sample};
+        state.baselineDrafts.draw = {...captureBaseline(), text: state.scenes.find((scene) => scene.id === "geometry").sample,
+          settings: {...captureBaseline().settings, alignment: "end"}};
         state.baselineExample = "yuuu";
         state.baselineDrafts.yuuu = yuuuDraft();
+      } else {
+        state.options.alignment = "end";
       }
       selectScene("geometry");
       if (portrait.status === "rejected") toast(String(portrait.reason));
@@ -742,8 +767,11 @@ $("source").addEventListener("input", schedule);
 $("show-boxes").addEventListener("change", schedule);
 $("show-carets").addEventListener("change", schedule);
 $("reset-path").addEventListener("click", () => {
+  const custom = state.options.path !== HEART_PATH && state.options.path?.length >= 2;
+  resetMorph = custom && !reducedMotion.matches
+    ? {from: matchPath(state.options.path, HEART_PATH), start: performance.now()} : null;
   state.options.path = HEART_PATH;
-  drawRevealStart = reducedMotion.matches ? 0 : performance.now();
+  drawRevealStart = custom || reducedMotion.matches ? 0 : performance.now();
   schedule();
   syncBaselineMotion();
 });

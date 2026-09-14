@@ -4,7 +4,7 @@ import {FeatureGraph} from "./features.js";
 import {Stage, VIEWPORT_WIDTH, clipClusters, containsHitbox, stageSummary, viewportWidthAt} from "./stage.js";
 import {rustTokens, tomlTokens, markdownTokens} from "./code-highlight.js";
 import {BudgetView, profileKey, referenceBudget} from "./budget.js";
-import {ODYSSEY_TEXT, ODYSSEY_VERSE, samplePath} from "./baseline-examples.js";
+import {HEART_BOUNDS, HEART_PATH, matchPath, ODYSSEY_TEXT, ODYSSEY_VERSE, samplePath} from "./baseline-examples.js";
 import {formatBaselinePoints} from "./baseline-code.js";
 import {buildTiles, glyphTarget, revealPulse, stepGlyph} from "./atmosphere.js";
 
@@ -126,6 +126,21 @@ const portraitProjection = Stage.prototype.projection(600, 400, {
 if (portraitProjection.fit <= 1 || portraitProjection.y0 + 12 * portraitProjection.fit <= 0) {
   throw new Error("Portrait path did not fit the stage");
 }
+const matched = matchPath([[0, 0], [100, 0]], HEART_PATH);
+if (matched.length !== HEART_PATH.length || matched[0][0] !== 0 || matched.at(-1)[0] !== 100
+  || matched.some(([x, y], index) => y !== 0 || index && x < matched[index - 1][0])) {
+  throw new Error("Reset morph changed the source path order");
+}
+const projectionStage = {projection: Stage.prototype.projection};
+const resetOptions = {fontSize: 14, example: "draw", pathBounds: HEART_BOUNDS};
+const initial = projectionStage.projection(600, 400, {...resetOptions, pathBounds: null}, true);
+const final = projectionStage.projection(600, 400, resetOptions, true);
+for (const [transition, expected] of [[0, initial], [1, final]]) {
+  const actual = projectionStage.projection(600, 400, {...resetOptions, pathTransition: transition}, true);
+  if (Object.keys(expected).some((key) => Math.abs(actual[key] - expected[key]) > .0001)) {
+    throw new Error("Reset morph changed stage projection at an endpoint");
+  }
+}
 const fontSize = 14;
 const drawProjection = Stage.prototype.projection(600, 400, {fontSize, example: "draw"}, true);
 const yuuuProjection = Stage.prototype.projection(600, 400, {
@@ -160,7 +175,7 @@ const layout = {
   glyphs: [{origin: [0, 0], offset: [0, 0], advance: [2000, 0], character: "A"}],
   carets: [],
 };
-function geometryFont(example, showCurve = false) {
+function geometryFont(example, showCurve = false, pathTransition = null) {
   const fonts = [];
   let curves = 0;
   const ctx = new Proxy({}, {
@@ -180,17 +195,18 @@ function geometryFont(example, showCurve = false) {
     curve: () => {curves++;},
   };
   Stage.prototype.layout.call(stage, ctx, 600, {...layout, geometry: true, baselines: [[[0, 0], [100, 0]]]}, {
-    fontSize: 14, example, showCurve, pathBounds: [25, 12, 203, 224], overflow: "ellipsis",
+    fontSize: 14, example, showCurve, pathTransition, pathBounds: [25, 12, 203, 224], overflow: "ellipsis",
   }, {boxes: false, carets: false});
   return {font: fonts.at(-1), curves};
 }
 const freeDraw = geometryFont("draw");
 const visibleCurve = geometryFont("draw", true);
+const morphCurve = geometryFont("draw", false, .5);
 const yuuuCurve = geometryFont("yuuu", true);
 if (!freeDraw.font?.startsWith("14px ") || !yuuuCurve.font?.startsWith("14px ")) {
   throw new Error("Baseline examples rendered different font sizes at 14 px");
 }
-if (freeDraw.curves !== 0 || visibleCurve.curves !== 1 || yuuuCurve.curves !== 0) {
+if (freeDraw.curves !== 0 || visibleCurve.curves !== 1 || morphCurve.curves !== 1 || yuuuCurve.curves !== 0) {
   throw new Error("The Free draw curve visibility control changed another baseline example");
 }
 let measurements = 0;

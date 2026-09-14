@@ -24,6 +24,27 @@ const heartYs = HEART_PATH.map(([, y]) => y);
 export const HEART_BOUNDS = [Math.min(...heartXs), Math.min(...heartYs),
   Math.max(...heartXs) - Math.min(...heartXs), Math.max(...heartYs) - Math.min(...heartYs)];
 
+export function matchPath(source, target) {
+  const distances = (points) => {
+    const lengths = [0];
+    for (let index = 1; index < points.length; index++) {
+      lengths.push(lengths.at(-1) + Math.hypot(points[index][0] - points[index - 1][0],
+        points[index][1] - points[index - 1][1]));
+    }
+    return lengths;
+  };
+  const from = distances(source);
+  const to = distances(target);
+  let segment = 1;
+  return to.map((length) => {
+    const position = to.at(-1) ? length / to.at(-1) * from.at(-1) : 0;
+    while (segment < from.length - 1 && from[segment] < position) segment++;
+    const span = from[segment] - from[segment - 1];
+    const fraction = span ? (position - from[segment - 1]) / span : 0;
+    return source[segment - 1].map((value, axis) => value + (source[segment][axis] - value) * fraction);
+  });
+}
+
 export function samplePath(path, segments = 1024) {
   if (!Number.isInteger(segments) || segments < 1 || segments > 2048) throw new Error("Invalid portrait sample count");
   const length = path.getTotalLength();

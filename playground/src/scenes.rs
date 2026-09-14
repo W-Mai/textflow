@@ -1,4 +1,4 @@
-use crate::font::{character, DemoFont, DemoShaping, UNITS_PER_EM};
+use crate::font::{character, DemoFont, DemoLatin, DemoShaping, UNITS_PER_EM};
 use serde::{Deserialize, Serialize};
 use textflow::bidi::{BaseDirection, BidiRun, BidiText, Direction};
 use textflow::layout::{LayoutLine, VisualRun};
@@ -29,6 +29,7 @@ pub struct Options {
     pub letter_spacing: i32,
     pub word_spacing: i32,
     pub kern: bool,
+    pub liga: bool,
     pub text_limit: usize,
     pub memory_limit: usize,
     pub path: Option<Vec<[i32; 2]>>,
@@ -54,6 +55,7 @@ impl Default for Options {
             letter_spacing: 0,
             word_spacing: 0,
             kern: false,
+            liga: true,
             text_limit: 4096,
             memory_limit: 131_072,
             path: None,
@@ -112,7 +114,7 @@ pub const SCENES: &[SceneSpec] = &[
         id: "shaping",
         label: "Glyph layout",
         requires: &["shaping"],
-        sample: "Between the trees, a lantern followed the winding path.",
+        sample: "To Avery, the office felt brighter with flowers.",
         description: "Glyph positions, visual runs and carets.",
     },
     SceneSpec {
@@ -330,7 +332,13 @@ fn builder(scene: &str, options: &Options) -> String {
     } else {
         to_units(options.width.clamp(32, 1200), options.font_size).max(1)
     };
-    let mut code = if options.kern && scene != "core" {
+    let mut code = if scene == "shaping" {
+        format!(
+            "let providers: [&dyn ScriptProvider; 1] = [&latin_provider];\nlet typeface = ScriptTypeface::new(&font, &shaping).with_scripts(&providers);\nlet features = [FontFeature::new(*b\"kern\", {}), FontFeature::new(*b\"liga\", {})];\nTextFlow::new(text, {width})",
+            u8::from(options.kern),
+            u8::from(options.liga)
+        )
+    } else if options.kern && scene != "core" {
         format!("let kern = [FontFeature::new(*b\"kern\", 1)];\nTextFlow::new(text, {width})")
     } else {
         format!("TextFlow::new(text, {width})")
@@ -351,7 +359,9 @@ fn builder(scene: &str, options: &Options) -> String {
             options.letter_spacing,
             options.word_spacing
         ));
-        if options.kern {
+        if scene == "shaping" {
+            code.push_str("\n    .with_features(&features)");
+        } else if options.kern {
             code.push_str("\n    .with_features(&kern)");
         }
         if scene == "workspace" {
@@ -629,11 +639,15 @@ fn layout(scene: &str, text: &str, options: &Options) -> Result<Data, Failure> {
     let font = DemoFont;
     let shaping = DemoShaping;
     let simple = SimpleTypeface::new(&font);
-    let providers: [&dyn ScriptProvider; 3] =
-        [&scripts::ARABIC, &scripts::THAI, &scripts::DEVANAGARI];
+    let providers: [&dyn ScriptProvider; 4] = [
+        &DemoLatin,
+        &scripts::ARABIC,
+        &scripts::THAI,
+        &scripts::DEVANAGARI,
+    ];
     let complex = ScriptTypeface::new(&font, &shaping).with_scripts(&providers);
     let face: &dyn Typeface = match scene {
-        "arabic" | "thai" | "devanagari" => &complex,
+        "shaping" | "arabic" | "thai" | "devanagari" => &complex,
         _ => &simple,
     };
     let font_size = options.font_size.clamp(12, 96);
@@ -651,6 +665,10 @@ fn layout(scene: &str, text: &str, options: &Options) -> Result<Data, Failure> {
         .map(|baseline| baseline.length() as usize)
         .unwrap_or_else(|| to_units(options.width.clamp(32, 1200), font_size).max(1));
     let kern = [FontFeature::new(*b"kern", 1)];
+    let latin = [
+        FontFeature::new(*b"kern", u32::from(options.kern)),
+        FontFeature::new(*b"liga", u32::from(options.liga)),
+    ];
     let mut flow = TextFlow::new(text, max_width)
         .with_line_height(to_units(options.line_height, font_size))
         .with_line_spacing(to_units(options.line_spacing, font_size))
@@ -664,7 +682,9 @@ fn layout(scene: &str, text: &str, options: &Options) -> Result<Data, Failure> {
     if scene == "geometry" {
         flow = flow.with_wrap(WrapMode::WordOrGrapheme).with_max_lines(1);
     }
-    if options.kern && scene != "geometry" {
+    if scene == "shaping" {
+        flow = flow.with_features(&latin);
+    } else if options.kern && scene != "geometry" {
         flow = flow.with_features(&kern);
     }
     let faces = [face];

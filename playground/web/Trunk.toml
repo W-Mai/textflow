@@ -1,0 +1,12 @@
+[build]
+target = "index.html"
+dist = "../dist"
+public_url = "/"
+
+[serve]
+addresses = ["127.0.0.1"]
+port = 8137
+
+[watch]
+watch = ["index.html", "styles.css", "terminal.css", "app.js", "features.js", "stage.js", "docs.js", "rust-highlight.js"]
+ignore = ["../dist", "pkg", "data"]

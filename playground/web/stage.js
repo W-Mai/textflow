@@ -8,7 +8,7 @@ export function stageSummary(response) {
     case "core": return `${data.lines.length} LINES`;
     case "unicode": return `${data.graphemes.length} GRAPHEMES · ${data.breaks.length} BREAKS`;
     case "bidi": return `${data.visual.length} VISUAL RUNS`;
-    case "layout": return `${data.glyphs.length} GLYPHS · ${data.lines.length} LINES`;
+    case "layout": return `${data.glyphs.length} GLYPHS · ${data.lines.length} ${data.lines.length === 1 ? "LINE" : "LINES"}`;
     default: return "";
   }
 }
@@ -23,16 +23,66 @@ function rectangle(ctx, x, y, width, height) {
 }
 
 export class Stage {
-  constructor(canvas, onInspect) {
+  constructor(canvas, onInspect, onPathChange) {
     this.canvas = canvas;
     this.onInspect = onInspect;
+    this.onPathChange = onPathChange;
     this.hitboxes = [];
     this.last = null;
-    canvas.addEventListener("pointermove", (event) => this.inspect(event));
-    canvas.addEventListener("pointerdown", (event) => this.inspect(event));
+    this.editable = false;
+    this.drawing = false;
+    this.samples = [];
+    canvas.addEventListener("pointermove", (event) => {
+      if (this.drawing) {
+        for (const sample of event.getCoalescedEvents?.() ?? [event]) this.record(sample);
+      } else if (!this.editable) this.inspect(event);
+    });
+    canvas.addEventListener("pointerdown", (event) => {
+      if (!this.editable) return this.inspect(event);
+      if (event.button !== 0) return;
+      event.preventDefault();
+      this.drawing = true;
+      this.samples = [];
+      canvas.setPointerCapture(event.pointerId);
+      this.record(event);
+    });
+    canvas.addEventListener("pointerup", (event) => {
+      if (!this.drawing) return;
+      this.record(event);
+      this.drawing = false;
+    });
+    canvas.addEventListener("pointercancel", () => { this.drawing = false; });
     canvas.addEventListener("pointerleave", (event) => {
       if (event.pointerType !== "touch") this.onInspect(null);
     });
+  }
+
+  setEditable(editable) {
+    this.editable = editable;
+    if (!editable) this.drawing = false;
+    this.canvas.style.touchAction = editable ? "none" : "";
+    this.canvas.style.cursor = editable ? "crosshair" : "default";
+  }
+
+  projection(width, options, geometry) {
+    const emScale = options.fontSize / 1000;
+    const extent = geometry ? 20_000 * emScale : options.width;
+    return {x0: 29, y0: 98, scale: emScale * Math.min(1, (width - 74) / Math.max(1, extent))};
+  }
+
+  record(event) {
+    const options = this.last?.[2];
+    if (!options) return;
+    const bounds = this.canvas.getBoundingClientRect();
+    const x = Math.max(0, Math.min(bounds.width, event.clientX - bounds.left));
+    const y = Math.max(0, Math.min(bounds.height, event.clientY - bounds.top));
+    const {x0, y0, scale} = this.projection(bounds.width, options, true);
+    const point = [Math.max(-30_000, Math.min(30_000, Math.round((x - x0) / scale))), Math.max(-30_000, Math.min(30_000, Math.round((y - y0) / scale)))];
+    const previous = this.samples.at(-1);
+    if (previous && Math.hypot(point[0] - previous[0], point[1] - previous[1]) < 90) return;
+    if (this.samples.length >= 64) this.samples = this.samples.filter((_, index) => index % 2 === 0);
+    this.samples.push(point);
+    this.onPathChange(this.samples.slice());
   }
 
   inspect(event) {
@@ -65,6 +115,9 @@ export class Stage {
     ctx.scale(ratio, ratio);
     this.hitboxes = [];
     this.background(ctx, width, height);
+    if (this.editable && !response?.ok && options.path?.length) {
+      this.curve(ctx, options.path, this.projection(width, options, true), false);
+    }
     if (!response?.ok || !data) return;
     switch (data.kind) {
       case "core": this.core(ctx, width, data); break;
@@ -93,25 +146,51 @@ export class Stage {
     ctx.fillRect(width - 43, 21, 18, 2);
   }
 
+  curve(ctx, points, projection, smooth = true) {
+    if (!points.length) return;
+    if (points.length === 1) {
+      ctx.fillStyle = this.palette.amber;
+      ctx.beginPath();
+      ctx.arc(projection.x0 + points[0][0] * projection.scale, projection.y0 + points[0][1] * projection.scale, 3, 0, Math.PI * 2);
+      ctx.fill();
+      return;
+    }
+    ctx.beginPath();
+    ctx.moveTo(projection.x0 + points[0][0] * projection.scale, projection.y0 + points[0][1] * projection.scale);
+    for (let index = 1; index < points.length; index++) {
+      ctx.lineTo(projection.x0 + points[index][0] * projection.scale, projection.y0 + points[index][1] * projection.scale);
+    }
+    ctx.strokeStyle = this.palette.amber;
+    ctx.lineWidth = smooth ? 2 : 1.5;
+    ctx.stroke();
+    ctx.lineWidth = 1;
+  }
+
   core(ctx, width, data) {
     const max = Math.max(1, ...data.lines.map((line) => line.width));
     data.lines.forEach((line, index) => {
       const y = 65 + index * 54;
-      const barWidth = Math.min(width - 54, Math.max(130, (width - 54) * line.width / max));
-      rectangle(ctx, 24, y, barWidth, 42);
+      const rowWidth = width - 48;
+      rectangle(ctx, 24, y, rowWidth, 42);
       ctx.fillStyle = index % 2 ? this.palette.cell : this.palette.cellAlt;
       ctx.fill();
       ctx.strokeStyle = index % 2 ? this.palette.line : this.palette.amber;
       ctx.stroke();
       ctx.fillStyle = this.palette.text;
       ctx.font = "500 15px ui-sans-serif, system-ui";
-      ctx.fillText(line.text, 38, y + 27, Math.max(70, barWidth - 88));
+      ctx.save();
+      rectangle(ctx, 38, y + 3, Math.max(0, rowWidth - 112), 34);
+      ctx.clip();
+      ctx.fillText(line.text, 38, y + 25);
+      ctx.restore();
+      ctx.fillStyle = this.palette.amber;
+      ctx.fillRect(24, y + 39, Math.max(2, rowWidth * line.width / max), 3);
       ctx.font = "700 10px ui-monospace, monospace";
       ctx.fillStyle = this.palette.muted;
       ctx.textAlign = "right";
-      ctx.fillText(String(line.width).padStart(2, "0"), 24 + barWidth - 13, y + 26);
+      ctx.fillText(`${line.width} COL`, 24 + rowWidth - 13, y + 26);
       ctx.textAlign = "left";
-      this.hitboxes.push({x: 24, y, width: barWidth, height: 42, value: {type: "line", ...line}});
+      this.hitboxes.push({x: 24, y, width: rowWidth, height: 42, value: {type: "line", ...line}});
     });
   }
 
@@ -163,24 +242,21 @@ export class Stage {
   }
 
   layout(ctx, width, data, options, overlays) {
-    const fit = Math.min(1, (width - 74) / Math.max(1, options.width));
-    const scale = data.emScale * fit;
-    const x0 = 29;
-    const y0 = 98;
+    const {x0, y0, scale} = this.projection(width, options, data.geometry);
+    const fit = scale / data.emScale;
     const size = Math.max(12, options.fontSize * fit);
     const runIndex = (index) => data.runs.findIndex((run) => index >= run.glyphs[0] && index < run.glyphs[1]);
     for (const [index, line] of data.lines.entries()) {
       const baseline = data.baselines?.[index];
-      const start = baseline?.[0] ?? [line.origin[0], line.origin[1]];
-      const end = baseline?.[1] ?? [Math.max(0, (width - 25 - x0) / scale), line.origin[1]];
-      const x1 = x0 + start[0] * scale;
-      const y1 = y0 + start[1] * scale;
-      const x2 = x0 + end[0] * scale;
-      const y2 = y0 + end[1] * scale;
-      ctx.strokeStyle = this.palette.line; ctx.setLineDash([4, 5]);
-      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); ctx.setLineDash([]);
-      ctx.fillStyle = this.palette.muted; ctx.font = "9px ui-monospace, monospace";
-      ctx.fillText(String(index + 1).padStart(2, "0"), 8, y1 - 5);
+      if (baseline) {
+        this.curve(ctx, baseline, {x0, y0, scale});
+      } else {
+        const y = y0 + line.origin[1] * scale;
+        ctx.strokeStyle = this.palette.line; ctx.setLineDash([4, 5]);
+        ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(width - 25, y); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = this.palette.muted; ctx.font = "9px ui-monospace, monospace";
+        ctx.fillText(String(index + 1).padStart(2, "0"), 8, y - 5);
+      }
     }
     data.glyphs.forEach((glyph, index) => {
       const origin = glyph.frame?.origin ?? [glyph.origin[0] + glyph.offset[0], glyph.origin[1] + glyph.offset[1]];
@@ -208,12 +284,17 @@ export class Stage {
       ctx.restore();
       this.hitboxes.push({x: x - 3, y: y - size, width: Math.max(advance + 6, 15), height: size + 9, value: {type: "glyph", ...glyph, run: runIndex(index)}});
     });
-    if (overlays.carets && !data.geometry) {
+    if (overlays.carets) {
       for (const caret of data.carets) {
-        const x = x0 + caret.position[0] * scale;
-        const y = y0 + caret.position[1] * scale;
+        const origin = caret.frame?.origin ?? caret.position;
+        const x = x0 + origin[0] * scale;
+        const y = y0 + origin[1] * scale;
         ctx.strokeStyle = this.palette.amber; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(x + .5, y - size); ctx.lineTo(x + .5, y + 5); ctx.stroke();
+        ctx.save();
+        ctx.translate(x, y);
+        if (caret.frame) ctx.rotate(Math.atan2(caret.frame.tangent[1], caret.frame.tangent[0]));
+        ctx.beginPath(); ctx.moveTo(.5, -size); ctx.lineTo(.5, 5); ctx.stroke();
+        ctx.restore();
         this.hitboxes.push({x: x - 3, y: y - size, width: 6, height: size + 5, value: {type: "caret", ...caret}});
       }
     }

@@ -2,7 +2,9 @@ use crate::font::{character, DemoFont, DemoShaping, UNITS_PER_EM};
 use serde::{Deserialize, Serialize};
 use textflow::bidi::{BaseDirection, BidiRun, BidiText, Direction};
 use textflow::layout::{LayoutLine, VisualRun};
-use textflow::placement::{GlyphFrame, LineBaseline, PlacementOutput};
+use textflow::placement::{
+    BaselineError, CaretFrame, GlyphFrame, PlacementError, PlacementOutput, PolylineBaseline,
+};
 use textflow::shaping::{
     CaretStop, FlowPoint, FontFeature, PositionedGlyph, ScriptProvider, ScriptTypeface,
     SimpleTypeface, Typeface,
@@ -28,6 +30,7 @@ pub struct Options {
     pub kern: bool,
     pub text_limit: usize,
     pub memory_limit: usize,
+    pub path: Option<Vec<[i32; 2]>>,
 }
 
 impl Default for Options {
@@ -47,6 +50,7 @@ impl Default for Options {
             kern: false,
             text_limit: 4096,
             memory_limit: 131_072,
+            path: None,
         }
     }
 }
@@ -132,8 +136,8 @@ pub const SCENES: &[SceneSpec] = &[
         id: "geometry",
         label: "Baselines",
         requires: &["shaping"],
-        sample: "A ribbon bends around the hill and returns to the sea.",
-        description: "Per-line widths and sloped baselines.",
+        sample: "Lorem ipsum dolor sit amet.",
+        description: "Draw a curve and place type along it.",
     },
 ];
 
@@ -199,7 +203,7 @@ pub struct Run {
 pub struct LayoutView {
     pub lines: Vec<LayoutLineView>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub baselines: Option<Vec<[[i32; 2]; 2]>>,
+    pub baselines: Option<Vec<Vec<[i32; 2]>>>,
     pub glyphs: Vec<Glyph>,
     pub carets: Vec<Caret>,
     pub runs: Vec<VisualRunView>,
@@ -245,6 +249,8 @@ pub struct Caret {
     pub offset: u32,
     pub position: [i32; 2],
     pub level: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frame: Option<Frame>,
 }
 
 #[derive(Serialize)]
@@ -253,6 +259,13 @@ pub struct VisualRunView {
     pub glyphs: [u32; 2],
     pub level: u8,
     pub font: u64,
+}
+
+#[derive(Clone, Copy)]
+struct GeometryView<'a> {
+    glyphs: &'a [GlyphFrame],
+    carets: &'a [CaretFrame],
+    points: &'a [FlowPoint],
 }
 
 pub fn analyze(scene: &str, text: &str, options: &Options) -> Response {
@@ -293,6 +306,12 @@ fn builder(scene: &str, options: &Options) -> String {
     if scene == "bidi" {
         return "BidiText::resolve(text, 0..text.len(), direction, &mut runs)\n    .visual_runs_into(&mut visual)".into();
     }
+    if scene == "geometry" {
+        return format!(
+            "let layout = TextFlow::new(text, 100_000)\n    .with_wrap(WrapMode::NoWrap)\n    .with_max_lines(1)\n    .with_letter_spacing({})\n    .with_word_spacing({})\n    .layout_with_scratch(&[&typeface], &mut scratch)?;\nlet baselines = [PolylineBaseline::new(&points)?];\nlet placement = layout.place_on(&baselines);\nlet required = placement.preflight()?;\nplacement.place_into(\n    PlacementOutput::new(&mut glyph_frames[..required.glyphs])\n        .with_carets(&mut caret_frames[..required.carets])\n)?;",
+            options.letter_spacing, options.word_spacing
+        );
+    }
     let width = if scene == "core" {
         (options.width / 16).max(1) as usize
     } else {
@@ -322,9 +341,6 @@ fn builder(scene: &str, options: &Options) -> String {
         if options.kern {
             code.push_str("\n    .with_features(&kern)");
         }
-        if scene == "geometry" {
-            code.push_str("\n    .with_line_widths(&line_widths)");
-        }
         if scene == "workspace" {
             code.push_str("\n    .layout_into(&[&typeface], &mut workspace, &mut output)");
         } else {
@@ -337,6 +353,54 @@ fn builder(scene: &str, options: &Options) -> String {
 fn to_units(pixels: u32, font_size: u32) -> usize {
     (f64::from(pixels) * f64::from(UNITS_PER_EM) / f64::from(font_size.clamp(12, 96))).round()
         as usize
+}
+
+const DEFAULT_PATH: [[i32; 2]; 7] = [
+    [300, 3100],
+    [3000, 1900],
+    [6100, 2600],
+    [8900, 4200],
+    [12_000, 3800],
+    [15_500, 2200],
+    [19_000, 2700],
+];
+
+fn smooth_path(options: &Options) -> Result<Vec<FlowPoint>, Failure> {
+    let samples = options.path.as_deref().unwrap_or(&DEFAULT_PATH);
+    if !(2..=64).contains(&samples.len())
+        || samples
+            .iter()
+            .flatten()
+            .any(|value| value.unsigned_abs() > 30_000)
+    {
+        return Err(Failure {
+            kind: "InvalidPath".into(),
+            message: "Draw a curve with 2–64 points inside the canvas".into(),
+        });
+    }
+    let mut points = Vec::with_capacity(samples.len() * 2);
+    points.push(FlowPoint {
+        x: samples[0][0],
+        y: samples[0][1],
+    });
+    for segment in samples.windows(2) {
+        let a = segment[0];
+        let b = segment[1];
+        points.push(FlowPoint {
+            x: (3 * a[0] + b[0]) / 4,
+            y: (3 * a[1] + b[1]) / 4,
+        });
+        points.push(FlowPoint {
+            x: (a[0] + 3 * b[0]) / 4,
+            y: (a[1] + 3 * b[1]) / 4,
+        });
+    }
+    let last = samples[samples.len() - 1];
+    points.push(FlowPoint {
+        x: last[0],
+        y: last[1],
+    });
+    Ok(points)
 }
 
 fn core(text: &str, options: &Options) -> Data {
@@ -457,6 +521,12 @@ fn layout(scene: &str, text: &str, options: &Options) -> Result<Data, Failure> {
             message: "The demo accepts at most 4096 UTF-8 bytes".into(),
         });
     }
+    if scene == "geometry" && text.chars().count() > 80 {
+        return Err(Failure {
+            kind: "TextLimit".into(),
+            message: "The curve accepts at most 80 characters".into(),
+        });
+    }
     let font = DemoFont;
     let shaping = DemoShaping;
     let simple = SimpleTypeface::new(&font);
@@ -468,14 +538,11 @@ fn layout(scene: &str, text: &str, options: &Options) -> Result<Data, Failure> {
         _ => &simple,
     };
     let font_size = options.font_size.clamp(12, 96);
-    let max_width = to_units(options.width.clamp(32, 1200), font_size).max(1);
-    let line_widths: [usize; 64] = core::array::from_fn(|index| {
-        if scene == "geometry" {
-            max_width.saturating_mul(100 - (index % 4) * 12) / 100
-        } else {
-            max_width
-        }
-    });
+    let max_width = if scene == "geometry" {
+        100_000
+    } else {
+        to_units(options.width.clamp(32, 1200), font_size).max(1)
+    };
     let kern = [FontFeature::new(*b"kern", 1)];
     let mut flow = TextFlow::new(text, max_width)
         .with_line_height(to_units(options.line_height, font_size))
@@ -488,9 +555,12 @@ fn layout(scene: &str, text: &str, options: &Options) -> Result<Data, Failure> {
         .with_letter_spacing(options.letter_spacing)
         .with_word_spacing(options.word_spacing);
     if scene == "geometry" {
-        flow = flow.with_line_widths(&line_widths);
+        flow = flow
+            .with_wrap(WrapMode::NoWrap)
+            .with_alignment(Alignment::Start)
+            .with_max_lines(1);
     }
-    if options.kern {
+    if options.kern && scene != "geometry" {
         flow = flow.with_features(&kern);
     }
     let faces = [face];
@@ -523,74 +593,56 @@ fn layout(scene: &str, text: &str, options: &Options) -> Result<Data, Failure> {
             Some(workspace.resident_bytes()),
             output_bytes,
             None,
-            None,
         )));
     }
     let mut scratch = LayoutScratch::<64, 512, 64, 1024>::new();
     let result = flow
         .layout_with_scratch(&faces, &mut scratch)
         .map_err(|error| fail("Layout", error))?;
-    let baselines: Option<Vec<LineBaseline>> = if scene == "geometry" {
-        Some(
-            result
-                .lines()
-                .iter()
-                .enumerate()
-                .map(|(index, line)| {
-                    let y = (index as i32 * 1600) + 800;
-                    let glyphs = line.glyphs();
-                    let carets = line.carets();
-                    let glyph_extent = result.glyphs()[glyphs.start as usize..glyphs.end as usize]
-                        .iter()
-                        .map(|glyph| glyph.origin.x.saturating_add(glyph.advance.x / 2))
-                        .max()
-                        .unwrap_or(0);
-                    let caret_extent = result.carets()[carets.start as usize..carets.end as usize]
-                        .iter()
-                        .map(|caret| caret.position.x)
-                        .max()
-                        .unwrap_or(0);
-                    let extent = (max_width as i32)
-                        .max(line.advance())
-                        .max(glyph_extent)
-                        .max(caret_extent)
-                        .saturating_add(1200);
-                    LineBaseline::new(
-                        FlowPoint { x: 0, y },
-                        FlowPoint {
-                            x: extent,
-                            y: y + if index % 2 == 0 { 200 } else { -200 },
-                        },
-                    )
-                })
-                .collect::<Result<_, _>>()
-                .map_err(|error| fail("Baseline", error))?,
-        )
+    let points = if scene == "geometry" {
+        Some(smooth_path(options)?)
     } else {
         None
     };
-    let frames = if let Some(baselines) = &baselines {
-        let operation = result.place_on(baselines);
-        let required = operation
-            .preflight()
-            .map_err(|error| fail("Baseline", error))?;
+    let (frames, caret_frames) = if let Some(points) = &points {
+        let baseline = PolylineBaseline::new(points).map_err(|error| fail("Baseline", error))?;
+        let baselines = [baseline];
+        let operation = result.place_on(&baselines);
+        let required = operation.preflight().map_err(|error| match error {
+            PlacementError::Baseline {
+                error: BaselineError::OutOfRange { .. },
+                ..
+            } => Failure {
+                kind: "PathTooShort".into(),
+                message: "Draw a longer curve or shorten the text".into(),
+            },
+            _ => fail("Baseline", error),
+        })?;
         let mut glyph_frames = vec![GlyphFrame::default(); required.glyphs];
-        let placed = operation
-            .place_into(PlacementOutput::new(&mut glyph_frames))
+        let mut caret_frames = vec![CaretFrame::default(); required.carets];
+        operation
+            .place_into(PlacementOutput::new(&mut glyph_frames).with_carets(&mut caret_frames))
             .map_err(|error| fail("Baseline", error))?;
-        Some(placed.glyph_frames().to_vec())
+        (Some(glyph_frames), Some(caret_frames))
     } else {
-        None
+        (None, None)
     };
     let output_bytes = core::mem::size_of::<LayoutScratch<64, 512, 64, 1024>>();
+    let geometry = match (&frames, &caret_frames, &points) {
+        (Some(glyphs), Some(carets), Some(points)) => Some(GeometryView {
+            glyphs,
+            carets,
+            points,
+        }),
+        _ => None,
+    };
     Ok(Data::Layout(view(
         text,
         &result,
         font_size,
         None,
         output_bytes,
-        frames.as_deref(),
-        baselines.as_deref(),
+        geometry,
     )))
 }
 
@@ -600,8 +652,7 @@ fn view(
     font_size: u32,
     private_bytes: Option<usize>,
     output_bytes: usize,
-    frames: Option<&[GlyphFrame]>,
-    baselines: Option<&[LineBaseline]>,
+    geometry: Option<GeometryView<'_>>,
 ) -> LayoutView {
     LayoutView {
         lines: layout
@@ -625,15 +676,12 @@ fn view(
                 }
             })
             .collect(),
-        baselines: baselines.map(|baselines| {
-            baselines
+        baselines: geometry.map(|geometry| {
+            vec![geometry
+                .points
                 .iter()
-                .map(|baseline| {
-                    let start = baseline.start();
-                    let end = baseline.end();
-                    [[start.x, start.y], [end.x, end.y]]
-                })
-                .collect()
+                .map(|point| [point.x, point.y])
+                .collect()]
         }),
         glyphs: layout
             .glyphs()
@@ -649,8 +697,8 @@ fn view(
                 advance: [glyph.advance.x, glyph.advance.y],
                 offset: [glyph.offset.x, glyph.offset.y],
                 level: glyph.bidi_level,
-                frame: frames
-                    .and_then(|frames| frames.get(index))
+                frame: geometry
+                    .and_then(|geometry| geometry.glyphs.get(index))
                     .map(|frame| Frame {
                         origin: [frame.local_origin.x, frame.local_origin.y],
                         tangent: [frame.unit_tangent.x, frame.unit_tangent.y],
@@ -660,10 +708,17 @@ fn view(
         carets: layout
             .carets()
             .iter()
-            .map(|caret| Caret {
+            .enumerate()
+            .map(|(index, caret)| Caret {
                 offset: caret.text_offset,
                 position: [caret.position.x, caret.position.y],
                 level: caret.bidi_level,
+                frame: geometry
+                    .and_then(|geometry| geometry.carets.get(index))
+                    .map(|frame| Frame {
+                        origin: [frame.local_origin.x, frame.local_origin.y],
+                        tangent: [frame.unit_tangent.x, frame.unit_tangent.y],
+                    }),
             })
             .collect(),
         runs: layout
@@ -684,6 +739,6 @@ fn view(
         private_bytes,
         output_bytes,
         synthetic_font: true,
-        geometry: frames.is_some(),
+        geometry: geometry.is_some(),
     }
 }

@@ -97,7 +97,7 @@ mod tests {
     fn geometry_exposes_the_baselines_used_for_placement() {
         let result = analyze(
             "geometry",
-            "A ribbon bends around the hill and returns to the sea.",
+            "Lorem ipsum dolor sit amet.",
             &Options {
                 width: 32,
                 ..Options::default()
@@ -110,12 +110,62 @@ mod tests {
         );
         let json = serde_json::to_value(result).unwrap();
         let baselines = json["data"]["baselines"].as_array().unwrap();
-        assert_eq!(
-            baselines.len(),
-            json["data"]["lines"].as_array().unwrap().len()
-        );
+        assert_eq!(baselines.len(), 1);
+        assert!(baselines[0].as_array().unwrap().len() > 2);
         assert_ne!(baselines[0][0][1], baselines[0][1][1]);
         assert!(json["data"]["glyphs"][0]["frame"].is_object());
+        assert!(json["data"]["carets"][0]["frame"].is_object());
+    }
+
+    #[test]
+    fn geometry_places_on_a_custom_curve() {
+        let result = analyze(
+            "geometry",
+            "Lorem",
+            &Options {
+                path: Some(vec![[0, 3000], [2500, 2000], [5500, 3600], [9000, 2600]]),
+                ..Options::default()
+            },
+        );
+        assert!(result.ok, "{:?}", result.error.as_ref().map(|e| &e.message));
+        let json = serde_json::to_value(result).unwrap();
+        let path = json["data"]["baselines"][0].as_array().unwrap();
+        assert_eq!(path.first().unwrap(), &serde_json::json!([0, 3000]));
+        assert_eq!(path.last().unwrap(), &serde_json::json!([9000, 2600]));
+        assert!(json["data"]["glyphs"][0]["frame"].is_object());
+    }
+
+    #[test]
+    fn geometry_rejects_short_and_unbounded_paths() {
+        let long_text = analyze("geometry", &"a".repeat(81), &Options::default());
+        assert_eq!(long_text.error.unwrap().kind, "TextLimit");
+        let short = analyze(
+            "geometry",
+            "Lorem ipsum dolor sit amet.",
+            &Options {
+                path: Some(vec![[0, 2000], [1000, 2000]]),
+                ..Options::default()
+            },
+        );
+        assert_eq!(short.error.unwrap().kind, "PathTooShort");
+        let dense = analyze(
+            "geometry",
+            "Lorem",
+            &Options {
+                path: Some(vec![[0, 0]; 65]),
+                ..Options::default()
+            },
+        );
+        assert_eq!(dense.error.unwrap().kind, "InvalidPath");
+        let extreme = analyze(
+            "geometry",
+            "Lorem",
+            &Options {
+                path: Some(vec![[i32::MIN, 0], [0, 0]]),
+                ..Options::default()
+            },
+        );
+        assert_eq!(extreme.error.unwrap().kind, "InvalidPath");
     }
 
     #[test]

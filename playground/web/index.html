@@ -5,16 +5,30 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f4f3f0">
   <meta name="description" content="Explore line breaking, Unicode text, shaping, and baseline placement in TextFlow.">
+  <link rel="canonical" href="https://benign.host/textflow/">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="TextFlow Playground">
+  <meta property="og:description" content="Explore line breaking, Unicode text, shaping, and baseline placement in TextFlow.">
+  <meta property="og:url" content="https://benign.host/textflow/">
   <title>TextFlow Playground</title>
-  <link rel="icon" href="assets/textflow-icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css">
-  <link rel="stylesheet" href="terminal.css">
+  <link rel="icon" href="textflow-icon.svg" type="image/svg+xml">
+  <link data-trunk rel="css" href="styles.css">
+  <link data-trunk rel="css" href="terminal.css">
+  <link data-trunk rel="copy-file" href="app.js">
+  <link data-trunk rel="copy-file" href="features.js">
+  <link data-trunk rel="copy-file" href="stage.js">
+  <link data-trunk rel="copy-file" href="docs.js">
+  <link data-trunk rel="copy-file" href="rust-highlight.js">
+  <link data-trunk rel="copy-dir" href="pkg">
+  <link data-trunk rel="copy-dir" href="data">
+  <link data-trunk rel="copy-file" href="../../assets/textflow-logo.svg">
+  <link data-trunk rel="copy-file" href="../../assets/textflow-icon.svg">
 </head>
 <body>
   <div class="page-glow" aria-hidden="true"></div>
   <header class="site-header">
     <a class="brand" href="#playground" aria-label="TextFlow playground home">
-      <img src="assets/textflow-logo.svg" alt="TextFlow" width="176" height="44">
+      <img src="textflow-logo.svg" alt="TextFlow" width="176" height="44">
     </a>
     <div class="header-right">
       <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Color theme: Auto">AUTO</button>
@@ -54,7 +68,7 @@
           <div class="playground-grid">
             <div class="primary-column">
               <section class="surface stage-surface" aria-label="Visualized output">
-                <div class="surface-head"><span><span class="head-dot"></span> OUTPUT</span><div class="stage-toggles"><label><input id="show-boxes" type="checkbox"> Bounds</label><label><input id="show-carets" type="checkbox"> Carets</label></div></div>
+                <div class="surface-head"><span><span class="head-dot"></span> OUTPUT</span><div class="stage-toggles"><button class="text-button" id="reset-path" type="button" hidden>RESET CURVE</button><label><input id="show-boxes" type="checkbox"> Bounds</label><label><input id="show-carets" type="checkbox"> Carets</label></div></div>
                 <div class="canvas-wrap"><canvas id="stage" aria-label="TextFlow layout visualization"></canvas><div class="canvas-empty" id="canvas-empty" hidden></div></div>
                 <div class="stage-footer"><span id="stage-summary">Loading…</span><span id="unit-label" hidden>1000 FONT UNITS / EM</span></div>
               </section>
@@ -64,8 +78,8 @@
               </section>
             </div>
             <div class="detail-column">
-              <section class="surface controls-surface"><div class="surface-head"><span>PARAMETERS</span><span class="head-glyph">⌘</span></div><div id="controls" class="controls"></div></section>
               <section class="surface code-surface"><div class="surface-head"><span>RUST API</span><button class="text-button" id="copy-code">COPY</button></div><pre id="code-preview" class="code-preview"></pre></section>
+              <section class="surface controls-surface"><div class="surface-head"><span>PARAMETERS</span><span class="head-glyph">⌘</span></div><div id="controls" class="controls"></div></section>
               <section class="surface inspect-surface"><div class="surface-head"><span>INSPECTOR</span><span id="inspector-count">—</span></div><div id="inspector" class="inspector"></div></section>
             </div>
           </div>

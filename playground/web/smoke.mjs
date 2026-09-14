@@ -2,6 +2,14 @@ import {readFileSync} from "node:fs";
 import init, {analyze_scene, feature_catalog, scene_catalog, scaffold_files, zip_files} from "./pkg/textflow_playground.js";
 import {FeatureGraph} from "./features.js";
 import {stageSummary} from "./stage.js";
+import {rustTokens} from "./rust-highlight.js";
+
+const snippet = 'let value = TextFlow::new("<tag>", 12); // safe\n';
+const tokens = rustTokens(snippet);
+if (tokens.map((token) => token.text).join("") !== snippet) throw new Error("Rust highlighting changed source text");
+for (const kind of ["keyword", "type", "string", "number", "comment"]) {
+  if (!tokens.some((token) => token.kind === kind)) throw new Error(`Missing Rust token kind: ${kind}`);
+}
 
 await init({module_or_path: readFileSync(new URL("./pkg/textflow_playground_bg.wasm", import.meta.url))});
 const features = feature_catalog();

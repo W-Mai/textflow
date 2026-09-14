@@ -6,6 +6,8 @@
 /playground/dist
 /tools/extract-docs/target
 /tools/extract-docs/Cargo.lock
+/tools/xtask/target
+/tools/xtask/Cargo.lock
 .idea
 Cargo.lock
 !examples/esp32c3/Cargo.lock

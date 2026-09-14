@@ -1,6 +1,7 @@
 import { FeatureGraph, renderFeatures } from "./features.js";
 import { Stage, stageSummary } from "./stage.js";
 import { DocsView } from "./docs.js";
+import { renderRust } from "./rust-highlight.js";
 
 const $ = (id) => document.getElementById(id);
 const state = {
@@ -19,6 +20,7 @@ const state = {
     direction: "auto", wrap: "word", alignment: "start", overflow: "clip",
     maxLines: 12, letterSpacing: 0, wordSpacing: 0, kern: false,
     textLimit: 4096, memoryLimit: 131072,
+    path: null,
   },
 };
 
@@ -41,7 +43,10 @@ const controls = [
 
 let toastTimer;
 let updateFrame;
-const stage = new Stage($("stage"), inspect);
+const stage = new Stage($("stage"), inspect, (points) => {
+  state.options.path = points;
+  schedule();
+});
 const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
 let themeMode = "auto";
 
@@ -161,6 +166,7 @@ function renderControls() {
   target.replaceChildren();
   for (const definition of controls) {
     if (definition.only && definition.only !== state.scene) continue;
+    if (state.scene === "geometry" && !["fontSize", "letterSpacing", "wordSpacing"].includes(definition.key)) continue;
     if (definition.needs === "shaping" && !shapingScene()) continue;
     if (definition.needs === "bidi" && ["core", "unicode"].includes(state.scene)) continue;
     const label = document.createElement("label");
@@ -246,6 +252,8 @@ function selectScene(id) {
   if (!scene) return;
   for (const feature of scene.requires) state.graph.enable(feature);
   state.scene = id;
+  stage.setEditable(id === "geometry");
+  $("reset-path").hidden = id !== "geometry";
   $("source").value = scene.sample;
   $("scene-title").textContent = scene.label;
   $("scene-description").textContent = scene.description;
@@ -270,13 +278,13 @@ function refresh() {
   } catch (error) {
     state.response = {scene: state.scene, ok: false, error: {kind: "WasmError", message: String(error)}};
   }
-  $("code-preview").textContent = state.response.code ?? "Engine unavailable";
+  renderRust($("code-preview"), state.response.code ?? "Engine unavailable");
   const empty = $("canvas-empty");
-  empty.hidden = !!state.response.ok;
+  empty.hidden = state.scene === "geometry" || !!state.response.ok;
   empty.textContent = state.response.ok ? "" : `${state.response.error?.kind ?? "Error"}: ${state.response.error?.message ?? "Unknown failure"}`;
   stage.render(state.response, text, state.options, {boxes: $("show-boxes").checked, carets: $("show-carets").checked});
   const data = state.response.data;
-  $("stage-summary").textContent = stageSummary(state.response);
+  $("stage-summary").textContent = state.scene === "geometry" && !state.response.ok ? state.response.error?.message ?? "Draw a curve" : stageSummary(state.response);
   $("unit-label").hidden = !state.response.ok || data.kind !== "layout";
   $("inspector-count").textContent = state.response.ok ? data.kind.toUpperCase() : "ERROR";
   inspect(null);
@@ -358,6 +366,10 @@ for (const tab of document.querySelectorAll(".view-tab")) tab.addEventListener("
 $("source").addEventListener("input", schedule);
 $("show-boxes").addEventListener("change", schedule);
 $("show-carets").addEventListener("change", schedule);
+$("reset-path").addEventListener("click", () => {
+  state.options.path = null;
+  schedule();
+});
 $("copy-command").addEventListener("click", () => copy($("add-command").textContent, "Command copied"));
 $("copy-code").addEventListener("click", () => copy($("code-preview").textContent, "API path copied"));
 $("copy-dependency").addEventListener("click", () => copy($("scaffold-dependency").textContent, "Manifest copied"));

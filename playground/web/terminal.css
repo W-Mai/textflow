@@ -180,6 +180,14 @@ body { background: var(--bg); color: var(--text); }
 }
 .control select, .docs-nav input { background: var(--panel); border-color: var(--line); color: var(--text); }
 .code-preview, #file-source { color: var(--code); }
+.workbench-main { overflow: visible; }
+.code-surface { position: sticky; top: 12px; z-index: 3; }
+.rust-token-keyword { color: var(--rust); }
+.rust-token-type { color: var(--blue); }
+.rust-token-string { color: var(--mint); }
+.rust-token-number { color: var(--violet); }
+.rust-token-comment { color: var(--faint); }
+.rust-token-macro { color: var(--orange); }
 .action-button { background: var(--selected); border-color: var(--rust); color: var(--text); }
 .action-button:hover { filter: none; background: var(--hover); }
 .file-layout nav button.is-active, .file-layout nav button:hover,
@@ -193,4 +201,14 @@ body { background: var(--bg); color: var(--text); }
   .header-right { gap: 8px; }
   .workbench-main { border-top: 1px solid var(--line); }
   .rail { margin-bottom: 8px; }
+}
+
+@media (max-width: 1150px) {
+  .playground-grid { display: flex; flex-direction: column; }
+  .detail-column { display: contents; }
+  .code-surface { order: 0; }
+  .primary-column { order: 1; }
+  .controls-surface { order: 2; }
+  .inspect-surface { order: 3; }
+  .code-preview { max-height: 145px; }
 }

@@ -1,4 +1,6 @@
-use crate::font::{character, DemoFont, DemoLatin, DemoShaping, UNITS_PER_EM};
+use crate::font::{
+    character, DemoFont, DemoLatin, DemoShaping, LatinFont, LatinShaping, UNITS_PER_EM,
+};
 use serde::{Deserialize, Serialize};
 use textflow::bidi::{BaseDirection, BidiRun, BidiText, Direction};
 use textflow::layout::{LayoutLine, VisualRun};
@@ -54,7 +56,7 @@ impl Default for Options {
             max_lines: 12,
             letter_spacing: 0,
             word_spacing: 0,
-            kern: false,
+            kern: true,
             liga: true,
             text_limit: 4096,
             memory_limit: 131_072,
@@ -115,7 +117,7 @@ pub const SCENES: &[SceneSpec] = &[
         label: "Glyph layout",
         requires: &["shaping"],
         sample: "To Avery, the office felt brighter with flowers.",
-        description: "Glyph positions, visual runs and carets.",
+        description: "Glyph positions, kerning, ligatures and carets.",
     },
     SceneSpec {
         id: "arabic",
@@ -638,6 +640,8 @@ fn layout(scene: &str, text: &str, options: &Options) -> Result<Data, Failure> {
     }
     let font = DemoFont;
     let shaping = DemoShaping;
+    let latin_font = LatinFont;
+    let latin_shaping = LatinShaping;
     let simple = SimpleTypeface::new(&font);
     let providers: [&dyn ScriptProvider; 4] = [
         &DemoLatin,
@@ -646,8 +650,11 @@ fn layout(scene: &str, text: &str, options: &Options) -> Result<Data, Failure> {
         &scripts::DEVANAGARI,
     ];
     let complex = ScriptTypeface::new(&font, &shaping).with_scripts(&providers);
+    let latin_providers: [&dyn ScriptProvider; 1] = [&DemoLatin];
+    let latin_face =
+        ScriptTypeface::new(&latin_font, &latin_shaping).with_scripts(&latin_providers);
     let face: &dyn Typeface = match scene {
-        "shaping" | "arabic" | "thai" | "devanagari" => &complex,
+        "arabic" | "thai" | "devanagari" => &complex,
         _ => &simple,
     };
     let font_size = options.font_size.clamp(12, 96);
@@ -687,7 +694,11 @@ fn layout(scene: &str, text: &str, options: &Options) -> Result<Data, Failure> {
     } else if options.kern && scene != "geometry" {
         flow = flow.with_features(&kern);
     }
-    let faces = [face];
+    let faces: &[&dyn Typeface] = if scene == "shaping" {
+        &[&latin_face, &complex]
+    } else {
+        &[face]
+    };
     if scene == "workspace" {
         let limits = LayoutLimits {
             text_bytes: options.text_limit,
@@ -708,7 +719,7 @@ fn layout(scene: &str, text: &str, options: &Options) -> Result<Data, Failure> {
             + carets.len() * core::mem::size_of::<CaretStop>();
         let mut output = LayoutOutput::new(&mut glyphs, &mut runs, &mut lines, &mut carets);
         let result = flow
-            .layout_into(&faces, &mut workspace, &mut output)
+            .layout_into(faces, &mut workspace, &mut output)
             .map_err(|error| fail("Workspace", error))?;
         return Ok(Data::Layout(view(
             text,
@@ -716,12 +727,20 @@ fn layout(scene: &str, text: &str, options: &Options) -> Result<Data, Failure> {
             Some(workspace.resident_bytes()),
             output_bytes,
             None,
+            true,
         )));
     }
     if scene == "geometry" {
-        layout_fixed::<1280, 1280>(text, &flow, &faces, points.as_deref(), baseline)
+        layout_fixed::<1280, 1280>(text, &flow, faces, points.as_deref(), baseline, true)
     } else {
-        layout_fixed::<512, 1024>(text, &flow, &faces, points.as_deref(), baseline)
+        layout_fixed::<512, 1024>(
+            text,
+            &flow,
+            faces,
+            points.as_deref(),
+            baseline,
+            scene != "shaping",
+        )
     }
 }
 
@@ -731,6 +750,7 @@ fn layout_fixed<const GLYPHS: usize, const CARETS: usize>(
     faces: &[&dyn Typeface],
     points: Option<&[FlowPoint]>,
     baseline: Option<PolylineBaseline<'_>>,
+    synthetic_font: bool,
 ) -> Result<Data, Failure> {
     let mut scratch = LayoutScratch::<64, GLYPHS, 64, CARETS>::new();
     let result = flow
@@ -773,6 +793,7 @@ fn layout_fixed<const GLYPHS: usize, const CARETS: usize>(
         None,
         output_bytes,
         geometry,
+        synthetic_font,
     )))
 }
 
@@ -782,6 +803,7 @@ fn view(
     private_bytes: Option<usize>,
     output_bytes: usize,
     geometry: Option<GeometryView<'_>>,
+    synthetic_font: bool,
 ) -> LayoutView {
     LayoutView {
         lines: layout
@@ -866,7 +888,8 @@ fn view(
             .collect(),
         private_bytes,
         output_bytes,
-        synthetic_font: true,
+        synthetic_font: synthetic_font
+            || layout.runs().iter().any(|run| run.font_id().value() == 1),
         geometry: geometry.is_some(),
     }
 }

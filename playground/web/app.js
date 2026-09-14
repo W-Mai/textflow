@@ -29,7 +29,7 @@ const state = {
   options: {
     width: 480, fontSize: 32, lineHeight: 42, lineSpacing: 8,
     direction: "auto", wrap: "word", alignment: "start", overflow: "clip",
-    maxLines: 12, letterSpacing: 0, wordSpacing: 0, kern: false, liga: true,
+    maxLines: 12, letterSpacing: 0, wordSpacing: 0, kern: true, liga: true,
     textLimit: 4096, memoryLimit: 131072,
     path: HEART_PATH, showCurve: false, smoothing: 2, motionDepth: 8, motionPhase: 0,
     motionEnabled: true, motionSpeed: 0.7, geometryOverflow: "ellipsis",
@@ -401,7 +401,9 @@ function inspect(hit) {
     target.append(row("Lines", data.lines.length), row("Glyphs", data.glyphs.length), row("Visual runs", data.runs.length), row("Caret stops", data.carets.length), row(data.privateBytes == null ? "Scratch capacity" : "Caller output", `${data.outputBytes.toLocaleString()} B`));
     if (stage.visibleGlyphs !== null && stage.visibleGlyphs < data.glyphs.length) target.append(row("Visible glyphs", stage.visibleGlyphs));
     if (data.privateBytes != null) target.append(row("Private buffers", `${data.privateBytes.toLocaleString()} B`));
-    target.append(row("Font source", "synthetic demo adapter"));
+    const fontSource = state.scene !== "shaping" ? "demo adapter"
+      : state.response.data?.syntheticFont ? "Lato + demo fallback" : "Lato Regular";
+    target.append(row("Font source", fontSource));
   } else if (data.kind === "unicode") {
     target.append(row("Graphemes", data.graphemes.length), row("Breaks", data.breaks.length), row("Script runs", data.scripts.length));
   } else if (data.kind === "bidi") {
@@ -706,6 +708,8 @@ function switchView(name) {
 
 async function initialize() {
   try {
+    const latinFaces = await document.fonts.load('16px "Playground Latin"');
+    if (!latinFaces.length) throw new Error("Playground Latin font unavailable");
     const wasm = await import("./pkg/textflow_playground.js");
     const exports = await wasm.default();
     state.engine = wasm;

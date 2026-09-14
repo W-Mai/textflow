@@ -7,6 +7,59 @@ use textflow::unicode::Script;
 
 pub const UNITS_PER_EM: u16 = 1000;
 
+mod latin_data {
+    include!(concat!(env!("OUT_DIR"), "/latin_font.rs"));
+}
+
+pub struct LatinFont;
+
+impl GlyphSource for LatinFont {
+    fn id(&self) -> FontId {
+        FontId::new(2)
+    }
+
+    fn metrics(&self) -> Result<FontMetrics, FontAccessError> {
+        Ok(FontMetrics {
+            units_per_em: UNITS_PER_EM,
+            ascender: latin_data::LATIN_ASCENDER,
+            descender: latin_data::LATIN_DESCENDER,
+            line_gap: latin_data::LATIN_LINE_GAP,
+        })
+    }
+
+    fn glyph_for(&self, character: char) -> Result<Option<GlyphId>, FontAccessError> {
+        let Ok(code) = u16::try_from(character as u32) else {
+            return Ok(None);
+        };
+        Ok(latin_data::LATIN_ADVANCES
+            .binary_search_by_key(&code, |entry| entry.0)
+            .ok()
+            .map(|_| GlyphId::new(code)))
+    }
+
+    fn notdef_glyph(&self) -> Result<Option<GlyphId>, FontAccessError> {
+        Ok(None)
+    }
+
+    fn glyph_advance(&self, glyph: GlyphId) -> Result<FlowPoint, FontAccessError> {
+        let index = latin_data::LATIN_ADVANCES
+            .binary_search_by_key(&glyph.value(), |entry| entry.0)
+            .map_err(|_| FontAccessError::Unavailable)?;
+        Ok(FlowPoint {
+            x: latin_data::LATIN_ADVANCES[index].1,
+            y: 0,
+        })
+    }
+
+    fn kerning(&self, left: GlyphId, right: GlyphId) -> Result<i32, FontAccessError> {
+        let pair = (left.value(), right.value());
+        Ok(latin_data::LATIN_KERNING
+            .binary_search_by_key(&pair, |entry| entry.0)
+            .ok()
+            .map_or(0, |index| latin_data::LATIN_KERNING[index].1))
+    }
+}
+
 pub struct DemoFont;
 
 pub fn character(glyph: GlyphId) -> Option<char> {
@@ -58,6 +111,8 @@ impl GlyphSource for DemoFont {
 }
 
 pub struct DemoShaping;
+
+pub struct LatinShaping;
 
 pub struct DemoLatin;
 
@@ -221,6 +276,52 @@ impl ShapingData for DemoShaping {
             if is_mark(ch) {
                 glyph.advance.x = 0;
                 glyph.offset.y = -240;
+                applied = true;
+            }
+        }
+        Ok(if applied {
+            LookupStatus::Applied
+        } else {
+            LookupStatus::NotFound
+        })
+    }
+}
+
+impl ShapingData for LatinShaping {
+    fn substitute(
+        &self,
+        request: LookupRequest<'_, '_>,
+        glyphs: &mut GlyphBuffer<'_>,
+    ) -> Result<LookupStatus, ShapeError> {
+        DemoShaping.substitute(request, glyphs)
+    }
+
+    fn position(
+        &self,
+        request: LookupRequest<'_, '_>,
+        glyphs: &mut GlyphBuffer<'_>,
+    ) -> Result<LookupStatus, ShapeError> {
+        if request.feature() != *b"kern" {
+            return Ok(LookupStatus::NotFound);
+        }
+        let font = LatinFont;
+        let mut applied = false;
+        for index in 1..glyphs.len() {
+            let left = glyphs
+                .get(index - 1)
+                .ok_or(ShapeError::InvalidGlyphRange)?
+                .glyph_id();
+            let right = glyphs
+                .get(index)
+                .ok_or(ShapeError::InvalidGlyphRange)?
+                .glyph_id();
+            let adjustment = font.kerning(left, right)?;
+            if adjustment != 0 {
+                glyphs
+                    .get_mut(index - 1)
+                    .ok_or(ShapeError::InvalidGlyphRange)?
+                    .advance
+                    .x += adjustment;
                 applied = true;
             }
         }

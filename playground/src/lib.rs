@@ -111,6 +111,61 @@ mod tests {
     }
 
     #[test]
+    fn latin_layout_uses_bundled_font_advances_and_pairs() {
+        let plain = analyze(
+            "shaping",
+            "the office To",
+            &Options {
+                width: 800,
+                wrap: "none".into(),
+                kern: false,
+                liga: false,
+                ..Options::default()
+            },
+        );
+        assert!(plain.ok, "{:?}", plain.error.as_ref().map(|e| &e.message));
+        let plain = serde_json::to_value(plain).unwrap();
+        let glyphs = plain["data"]["glyphs"].as_array().unwrap();
+        assert_eq!(glyphs[0]["character"], "t");
+        assert_eq!(glyphs[0]["advance"][0], 373);
+        assert_eq!(glyphs[1]["origin"][0], 373);
+        assert_eq!(plain["data"]["runs"][0]["font"], 2);
+        assert_eq!(plain["data"]["syntheticFont"], false);
+
+        let kerned = analyze(
+            "shaping",
+            "To",
+            &Options {
+                kern: true,
+                ..Options::default()
+            },
+        );
+        let unkerned = analyze(
+            "shaping",
+            "To",
+            &Options {
+                kern: false,
+                ..Options::default()
+            },
+        );
+        let kerned = serde_json::to_value(kerned).unwrap();
+        let unkerned = serde_json::to_value(unkerned).unwrap();
+        assert_eq!(
+            kerned["data"]["glyphs"][0]["advance"][0].as_i64().unwrap()
+                - unkerned["data"]["glyphs"][0]["advance"][0]
+                    .as_i64()
+                    .unwrap(),
+            -105
+        );
+
+        let mixed = analyze("shaping", "Aé", &Options::default());
+        assert!(mixed.ok);
+        let mixed = serde_json::to_value(mixed).unwrap();
+        assert_eq!(mixed["data"]["runs"].as_array().unwrap().len(), 2);
+        assert_eq!(mixed["data"]["syntheticFont"], true);
+    }
+
+    #[test]
     fn core_width_control_reaches_cjk_breaks() {
         let result = analyze(
             "core",

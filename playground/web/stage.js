@@ -514,7 +514,7 @@ export class Stage {
       }
       revealEnd *= textReveal;
     }
-    const size = data.geometry ? options.fontSize : Math.max(12, options.fontSize * fit);
+    const size = scale * 1000;
     const clipRight = options.overflow === "clip" && !data.geometry ? x0 + options.width * fit : null;
     const addHitbox = (box) => {
       if (clipRight !== null) {
@@ -527,29 +527,33 @@ export class Stage {
       this.hitboxes.push(box);
     };
     const runIndex = (index) => data.runs.findIndex((run) => index >= run.glyphs[0] && index < run.glyphs[1]);
-    const font = options.example === "yuuu" || scene === "shaping"
-      ? `${Math.round(size)}px "Times New Roman", Georgia, serif`
-      : `${Math.round(size)}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+    const font = options.example === "yuuu"
+      ? `${size}px "Times New Roman", Georgia, serif`
+      : `${size}px ui-monospace, SFMono-Regular, Menlo, monospace`;
     if (this.metricFont !== font || !this.metrics) {
       this.metricFont = font;
       this.metrics = new Map();
     }
-    ctx.font = font;
+    ctx.fontKerning = "none";
     const glyphs = data.glyphs.map((glyph, index) => {
       const origin = glyph.frame?.origin ?? [glyph.origin[0] + glyph.offset[0], glyph.origin[1] + glyph.offset[1]];
       const x = x0 + origin[0] * scale;
       const y = y0 + origin[1] * scale;
-      const advance = Math.max(8, glyph.advance[0] * scale);
+      const advance = glyph.advance[0] * scale;
       const character = glyph.character || "□";
-      let metrics = this.metrics.get(character);
+      const glyphFont = scene === "shaping" && data.runs[runIndex(index)]?.font === 2
+        ? `${size}px "Playground Latin"` : font;
+      ctx.font = glyphFont;
+      const metricKey = `${glyphFont}|${character}`;
+      let metrics = this.metrics.get(metricKey);
       if (!metrics) {
         metrics = ctx.measureText(character);
-        this.metrics.set(character, metrics);
+        this.metrics.set(metricKey, metrics);
       }
       const left = -(metrics?.actualBoundingBoxLeft ?? 0);
       const right = metrics?.actualBoundingBoxRight ?? metrics?.width ?? advance;
       return {
-        glyph, index, x, y, advance, font, character, left, right,
+        glyph, index, x, y, advance, font: glyphFont, character, left, right,
         top: -(metrics?.actualBoundingBoxAscent ?? size * .82),
         bottom: metrics?.actualBoundingBoxDescent ?? size * .18,
         angle: glyph.frame ? Math.atan2(glyph.frame.tangent[1], glyph.frame.tangent[0]) : 0,

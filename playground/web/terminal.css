@@ -1,3 +1,11 @@
+@font-face {
+  font-family: "Playground Latin";
+  src: url("./Lato-Regular.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+}
+
 :root {
   color-scheme: light;
   --bg: #f4f3f0;

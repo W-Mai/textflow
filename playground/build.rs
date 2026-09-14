@@ -3,6 +3,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
+mod font_tables;
+
 fn main() {
     let root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("manifest dir"))
         .parent()
@@ -51,4 +53,13 @@ fn main() {
         source,
     )
     .expect("feature graph");
+    let font_path = root.join("playground/web/Lato-Regular.ttf");
+    println!("cargo:rerun-if-changed={}", font_path.display());
+    let font = fs::read(font_path).expect("Playground Latin font");
+    let tables = font_tables::generate(&font).expect("valid Playground Latin font");
+    fs::write(
+        PathBuf::from(env::var("OUT_DIR").expect("out dir")).join("latin_font.rs"),
+        tables,
+    )
+    .expect("Latin font tables");
 }

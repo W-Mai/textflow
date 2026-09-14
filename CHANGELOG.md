@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Overlong RTL lines retain their logical start at the right viewport edge when clipped; unexpanded justified lines also honor that edge.
+- API atlas method searches include only methods available under the selected features and open directly on matching methods.
+
+### Changed
+
+- Site guides cover font adapters, positioned glyphs, bidi overflow, baseline placement, and bounded memory; the README includes a concise coordinate example.
+
 ## [0.3.1] - 2026-09-14
 
 ### Added

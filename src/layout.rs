@@ -410,8 +410,9 @@ impl<'output, 'config> ParagraphBuilder<'output, 'config> {
             .x
             .checked_sub(origin.x)
             .ok_or(LayoutError::CoordinateOverflow)?;
-        let offset = self.alignment_offset(line_index, advance)?;
-        let aligned_origin = FlowPoint {
+        let justifies = self.options.alignment == Alignment::Justify && broken.end == LineEnd::Wrap;
+        let offset = self.alignment_offset(line_index, advance, justifies)?;
+        let mut aligned_origin = FlowPoint {
             x: origin
                 .x
                 .checked_add(offset)
@@ -419,7 +420,7 @@ impl<'output, 'config> ParagraphBuilder<'output, 'config> {
             y: origin.y,
         };
         self.translate_line(line_glyph_start, line_caret_start, offset)?;
-        if self.options.alignment == Alignment::Justify && broken.end == LineEnd::Wrap {
+        if justifies {
             advance = self.justify_line(
                 input.text,
                 broken,
@@ -428,6 +429,16 @@ impl<'output, 'config> ParagraphBuilder<'output, 'config> {
                 line_caret_start,
                 advance,
             )?;
+            if self.options.direction == Direction::RightToLeft {
+                let adjustment = self.alignment_offset(line_index, advance, false)?;
+                if adjustment > 0 {
+                    self.translate_line(line_glyph_start, line_caret_start, adjustment)?;
+                    aligned_origin.x = aligned_origin
+                        .x
+                        .checked_add(adjustment)
+                        .ok_or(LayoutError::CoordinateOverflow)?;
+                }
+            }
         }
         self.buffers.lines[line_index] = LayoutLine {
             text: broken.text,
@@ -567,18 +578,27 @@ impl<'output, 'config> ParagraphBuilder<'output, 'config> {
             .map_err(|_| LayoutError::InvalidWidth)
     }
 
-    fn alignment_offset(&self, line: usize, advance: i32) -> Result<i32, LayoutError> {
+    fn alignment_offset(
+        &self,
+        line: usize,
+        advance: i32,
+        justifies: bool,
+    ) -> Result<i32, LayoutError> {
         let Some(width) = self.width(line)? else {
             return Ok(0);
         };
-        let remaining = width.saturating_sub(advance).max(0);
+        let remaining = width
+            .checked_sub(advance)
+            .ok_or(LayoutError::CoordinateOverflow)?;
         Ok(match (self.options.alignment, self.options.direction) {
             (Alignment::Start, Direction::LeftToRight)
-            | (Alignment::End, Direction::RightToLeft)
-            | (Alignment::Justify, _) => 0,
+            | (Alignment::End, Direction::RightToLeft) => 0,
             (Alignment::Start, Direction::RightToLeft)
             | (Alignment::End, Direction::LeftToRight) => remaining,
             (Alignment::Center, _) => remaining / 2,
+            (Alignment::Justify, Direction::LeftToRight) => 0,
+            (Alignment::Justify, Direction::RightToLeft) if justifies => remaining.min(0),
+            (Alignment::Justify, Direction::RightToLeft) => remaining,
         })
     }
 
@@ -2605,6 +2625,92 @@ mod tests {
             .unwrap();
         assert_eq!(rtl_start.lines()[0].origin().x, 8);
         assert_eq!(rtl_start.glyphs()[0].origin.x, 8);
+    }
+
+    #[test]
+    fn overflowing_lines_preserve_directional_alignment() {
+        let ascii = SimpleTypeface::new(&Source {
+            key: 1,
+            ascii: true,
+        });
+        let non_ascii = SimpleTypeface::new(&Source {
+            key: 2,
+            ascii: false,
+        });
+        let typefaces: [&dyn Typeface; 2] = [&ascii, &non_ascii];
+        let cases = [
+            ("abcd", BaseDirection::LeftToRight, Alignment::Start, 2, 0),
+            ("abcd", BaseDirection::LeftToRight, Alignment::Center, 2, -1),
+            ("abcd", BaseDirection::LeftToRight, Alignment::End, 2, -2),
+            ("אבגד", BaseDirection::RightToLeft, Alignment::Start, 2, -2),
+            ("אבגד", BaseDirection::RightToLeft, Alignment::Center, 2, -1),
+            ("אבגד", BaseDirection::RightToLeft, Alignment::End, 2, 0),
+            (
+                "אבגד",
+                BaseDirection::RightToLeft,
+                Alignment::Justify,
+                2,
+                -2,
+            ),
+            ("אבגד", BaseDirection::RightToLeft, Alignment::Justify, 6, 2),
+        ];
+
+        for (text, direction, alignment, width, expected_x) in cases {
+            let mut scratch = LayoutScratch::<4, 8, 2, 12>::new();
+            let layout = crate::TextFlow::new(text, 16)
+                .with_width(width)
+                .with_direction(direction)
+                .with_wrap(WrapMode::NoWrap)
+                .with_alignment(alignment)
+                .layout_with_scratch(&typefaces, &mut scratch)
+                .unwrap();
+
+            assert_eq!(
+                layout.lines()[0].origin().x,
+                expected_x,
+                "{text} {alignment:?}"
+            );
+            assert_eq!(
+                layout.glyphs()[0].origin.x,
+                expected_x,
+                "{text} {alignment:?}"
+            );
+            assert_eq!(layout.carets().first().unwrap().position.x, expected_x);
+            assert_eq!(layout.carets().last().unwrap().position.x, expected_x + 4);
+            if alignment == Alignment::Start && direction == BaseDirection::RightToLeft {
+                let visible: Vec<_> = layout
+                    .glyphs()
+                    .iter()
+                    .filter(|glyph| (0..2).contains(&glyph.origin.x))
+                    .map(|glyph| glyph.cluster.start)
+                    .collect();
+                assert_eq!(visible, [2, 0]);
+            }
+        }
+    }
+
+    #[test]
+    fn rtl_justification_keeps_unexpanded_lines_at_the_start_edge() {
+        let ascii = SimpleTypeface::new(&Source {
+            key: 1,
+            ascii: true,
+        });
+        let font = SimpleTypeface::new(&Source {
+            key: 2,
+            ascii: false,
+        });
+        let typefaces: [&dyn Typeface; 2] = [&ascii, &font];
+        let mut scratch = LayoutScratch::<4, 8, 4, 12>::new();
+        let layout = crate::TextFlow::new("אב גד", 4)
+            .with_direction(BaseDirection::RightToLeft)
+            .with_wrap(WrapMode::Word)
+            .with_alignment(Alignment::Justify)
+            .layout_with_scratch(&typefaces, &mut scratch)
+            .unwrap();
+
+        assert_eq!(layout.lines().len(), 2);
+        assert_eq!(layout.lines()[0].origin().x, 1);
+        assert_eq!(layout.lines()[1].origin().x, 2);
     }
 
     #[test]

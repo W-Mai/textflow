@@ -664,6 +664,8 @@ async function initialize() {
       $("docs-detail").textContent = `Documentation index unavailable: ${docs.reason}`;
     }
     selectScene("core");
+    const requestedView = new URLSearchParams(window.location.search).get("view");
+    if (requestedView === "scaffold" || requestedView === "docs") switchView(requestedView);
   } catch (error) {
     $("engine-status").classList.add("is-error");
     $("engine-status").innerHTML = "<i></i> Could not load";

@@ -53,6 +53,31 @@ let lines = TextFlow::new(text, 12)
 assert_eq!(lines, ["A small UI", "can still", "set type", "well."]);
 ```
 
+Enable `shaping` and pass a font adapter implementing `Typeface` for positioned text:
+
+```rust
+use textflow::{LayoutError, LayoutScratch, TextFlow, WrapMode};
+use textflow::shaping::Typeface;
+
+fn print_positions(font: &dyn Typeface) -> Result<(), LayoutError> {
+    let text = "שלום, hello";
+    let mut scratch = LayoutScratch::<16, 64, 8, 128>::new();
+    let layout = TextFlow::new(text, 4800)
+        .with_line_height(1200)
+        .with_wrap(WrapMode::WordOrGrapheme)
+        .layout_with_scratch(&[font], &mut scratch)?;
+
+    for glyph in layout.glyphs() {
+        let bytes = glyph.cluster.start as usize..glyph.cluster.end as usize;
+        let ink = (glyph.origin.x + glyph.offset.x, glyph.origin.y + glyph.offset.y);
+        println!("{:?} @ {ink:?}", &text[bytes]);
+    }
+    Ok(())
+}
+```
+
+Glyphs are in visual order; cluster ranges address the original UTF-8 text. Width, line height, and coordinates use the font adapter's units. The [site guides](https://benign.host/textflow/?view=docs) cover font data, mixed direction, overflow, and baseline placement.
+
 ## Playground
 
 The [browser playground](https://benign.host/textflow/) visualizes line breaks, Unicode clusters, bidi runs, positioned glyphs, carets, script providers, workspace limits, and spline-smoothed baseline placement. Baselines includes freehand curves, an Odyssey portrait example, and copyable Rust `FlowPoint` slices. Its scaffold generates compile-checked examples from the selected Cargo features using the released crate version.
@@ -110,6 +135,7 @@ A format adapter supplies `Typeface` for complete shaping or `GlyphSource` for s
 
 ## Documentation
 
+- [Guides and API atlas](https://benign.host/textflow/?view=docs)
 - [API documentation](https://docs.rs/textflow-rs)
 - [Source repository](https://github.com/W-Mai/textflow)
 

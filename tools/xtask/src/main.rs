@@ -34,7 +34,15 @@ fn prepare(root: &Path) -> Result<(), String> {
         ],
         root,
     )?;
-    run("node", &["tools/budget.mjs", "--check"], root)?;
+    run(
+        "node",
+        &[
+            "--experimental-default-type=module",
+            "tools/budget.mjs",
+            "--check",
+        ],
+        root,
+    )?;
     run(
         "wasm-pack",
         &[
@@ -90,7 +98,7 @@ fn main() -> Result<(), String> {
             if args.next().is_some() || option.as_deref().is_some_and(|value| value != "--check") {
                 return Err("Usage: cargo xtask budget [--check]".into());
             }
-            let mut arguments = vec!["tools/budget.mjs"];
+            let mut arguments = vec!["--experimental-default-type=module", "tools/budget.mjs"];
             if option.is_some() {
                 arguments.push("--check");
             }

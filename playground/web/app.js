@@ -109,6 +109,7 @@ async function selectBaselineExample(example) {
 }
 
 let exampleLoading = false;
+let freeDrawInviteTimer;
 let toastTimer;
 let updateFrame;
 const stage = new Stage($("stage"), inspect, (points) => {
@@ -495,6 +496,10 @@ function renderExampleSwitch() {
   const visible = state.scene === "geometry";
   $("baseline-examples").hidden = !visible;
   $("detail-column").classList.toggle("has-example-switch", visible);
+  if (!visible || state.baselineExample !== "yuuu") {
+    clearTimeout(freeDrawInviteTimer);
+    $("example-draw").classList.remove("is-invited");
+  }
   for (const example of ["draw", "yuuu"]) {
     const button = $(`example-${example}`);
     const active = state.baselineExample === example;
@@ -502,6 +507,14 @@ function renderExampleSwitch() {
     button.setAttribute("aria-pressed", String(active));
     button.disabled = exampleLoading;
   }
+}
+
+function inviteFreeDraw() {
+  if (state.scene !== "geometry" || state.baselineExample !== "yuuu") return;
+  const button = $("example-draw");
+  button.classList.add("is-invited");
+  clearTimeout(freeDrawInviteTimer);
+  freeDrawInviteTimer = setTimeout(() => button.classList.remove("is-invited"), 3200);
 }
 
 function renderSceneTabs() {
@@ -711,6 +724,7 @@ async function initialize() {
 
 for (const tab of document.querySelectorAll(".view-tab")) tab.addEventListener("click", () => switchView(tab.dataset.view));
 for (const example of ["draw", "yuuu"]) $("example-" + example).addEventListener("click", () => selectBaselineExample(example));
+stage.canvas.addEventListener("click", inviteFreeDraw);
 $("source").addEventListener("input", schedule);
 $("show-boxes").addEventListener("change", schedule);
 $("show-carets").addEventListener("change", schedule);

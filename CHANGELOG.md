@@ -13,6 +13,7 @@
 
 ### Changed
 
+- Clicking the yuuu canvas briefly highlights Free draw without switching examples.
 - The Playground opens on the yuuu Baselines example.
 - Free draw hides its baseline guide by default and exposes a Show curve control.
 - Site guides cover font adapters, positioned glyphs, bidi overflow, baseline placement, and bounded memory; the README includes a concise coordinate example.

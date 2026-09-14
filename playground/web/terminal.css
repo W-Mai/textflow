@@ -233,6 +233,17 @@ body { background: var(--bg); color: var(--text); }
 }
 .example-button:hover, .example-button.is-active { border-color: var(--rust); background: var(--selected); color: var(--text); }
 .example-button:disabled { cursor: progress; }
+.example-button.is-invited {
+  border-color: var(--rust);
+  background: var(--selected);
+  color: var(--text);
+  outline: 2px solid var(--rust);
+  outline-offset: -4px;
+  animation: free-draw-invite 1.15s ease-in-out infinite;
+}
+.example-button.is-invited .draw-logo { background: var(--rust); border-color: var(--rust); color: var(--panel); }
+.example-button.is-invited::after { content: "✦"; margin-left: auto; color: var(--rust); font-size: 15px; }
+@keyframes free-draw-invite { 50% { outline-offset: -7px; outline-color: var(--orange); } }
 .example-logo {
   flex: none;
   width: 36px;
@@ -336,6 +347,7 @@ body { background: var(--bg); color: var(--text); }
 }
 @media (prefers-reduced-motion: reduce) {
   .scene-tab-baselines::after, .baseline-mark path, .example-logo path { animation: none; }
+  .example-button.is-invited { animation: none; }
 }
 
 @media (max-width: 1150px) {

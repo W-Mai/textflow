@@ -4,6 +4,7 @@ use textflow::bidi::{BaseDirection, BidiRun, BidiText, Direction};
 use textflow::layout::{LayoutLine, VisualRun};
 use textflow::placement::{
     BaselineError, CaretFrame, GlyphFrame, PlacementError, PlacementOutput, PolylineBaseline,
+    TextBaseline,
 };
 use textflow::shaping::{
     CaretStop, FlowPoint, FontFeature, PositionedGlyph, ScriptProvider, ScriptTypeface,
@@ -31,6 +32,9 @@ pub struct Options {
     pub text_limit: usize,
     pub memory_limit: usize,
     pub path: Option<Vec<[i32; 2]>>,
+    pub smoothing: u8,
+    pub motion_depth: u8,
+    pub motion_phase: f32,
 }
 
 impl Default for Options {
@@ -51,6 +55,9 @@ impl Default for Options {
             text_limit: 4096,
             memory_limit: 131_072,
             path: None,
+            smoothing: 2,
+            motion_depth: 8,
+            motion_phase: 0.0,
         }
     }
 }
@@ -136,7 +143,7 @@ pub const SCENES: &[SceneSpec] = &[
         id: "geometry",
         label: "Baselines",
         requires: &["shaping"],
-        sample: "Lorem ipsum",
+        sample: "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.",
         description: "Draw a curve and place type along it.",
     },
 ];
@@ -307,8 +314,11 @@ fn builder(scene: &str, options: &Options) -> String {
     }
     if scene == "geometry" {
         return format!(
-            "let layout = TextFlow::new(text, 100_000)\n    .with_wrap(WrapMode::NoWrap)\n    .with_max_lines(1)\n    .with_letter_spacing({})\n    .with_word_spacing({})\n    .layout_with_scratch(&[&typeface], &mut scratch)?;\nlet baselines = [PolylineBaseline::new(&points)?];\nlet placement = layout.place_on(&baselines);\nlet required = placement.preflight()?;\nplacement.place_into(\n    PlacementOutput::new(&mut glyph_frames[..required.glyphs])\n        .with_carets(&mut caret_frames[..required.carets])\n)?;",
-            options.letter_spacing, options.word_spacing
+            "let baseline = PolylineBaseline::new(&points)?;\nlet layout = TextFlow::new(text, baseline.length() as usize)\n    .with_wrap(WrapMode::WordOrGrapheme)\n    .with_overflow(Overflow::{:?})\n    .with_alignment(Alignment::{:?})\n    .with_max_lines(1)\n    .with_letter_spacing({})\n    .with_word_spacing({})\n    .layout_with_scratch(&[&typeface], &mut scratch)?;\nlet placement = layout.place_on(&[baseline]);\nlet required = placement.preflight()?;\nplacement.place_into(\n    PlacementOutput::new(&mut glyph_frames[..required.glyphs])\n        .with_carets(&mut caret_frames[..required.carets])\n)?;",
+            overflow(&options.overflow),
+            alignment(&options.alignment),
+            options.letter_spacing,
+            options.word_spacing
         );
     }
     let width = if scene == "core" {
@@ -364,8 +374,8 @@ const DEFAULT_PATH: [[i32; 2]; 7] = [
     [610, 86],
 ];
 
-fn path_units(value: i32, font_size: u32) -> i32 {
-    (f64::from(value) * f64::from(UNITS_PER_EM) / f64::from(font_size.clamp(12, 96))).round() as i32
+fn path_units(value: f64, font_size: u32) -> i32 {
+    (value * f64::from(UNITS_PER_EM) / f64::from(font_size.clamp(12, 96))).round() as i32
 }
 
 fn smooth_path(options: &Options) -> Result<Vec<FlowPoint>, Failure> {
@@ -381,20 +391,93 @@ fn smooth_path(options: &Options) -> Result<Vec<FlowPoint>, Failure> {
             message: "Draw a curve with 2–64 points inside the canvas".into(),
         });
     }
-    let mut points = Vec::with_capacity(samples.len() * 2);
-    let to_point = |x, y| FlowPoint {
-        x: path_units(x, options.font_size),
-        y: path_units(y, options.font_size),
-    };
-    points.push(to_point(samples[0][0], samples[0][1]));
-    for segment in samples.windows(2) {
-        let a = segment[0];
-        let b = segment[1];
-        points.push(to_point((3 * a[0] + b[0]) / 4, (3 * a[1] + b[1]) / 4));
-        points.push(to_point((a[0] + 3 * b[0]) / 4, (a[1] + 3 * b[1]) / 4));
+    let mut anchors: Vec<[f64; 2]> = samples
+        .iter()
+        .map(|point| [f64::from(point[0]), f64::from(point[1])])
+        .collect();
+    for _ in 0..options.smoothing.min(4) {
+        let mut filtered = anchors.clone();
+        for index in 1..anchors.len() - 1 {
+            for axis in 0..2 {
+                filtered[index][axis] = (anchors[index.saturating_sub(2)][axis]
+                    + 4.0 * anchors[index - 1][axis]
+                    + 6.0 * anchors[index][axis]
+                    + 4.0 * anchors[(index + 1).min(anchors.len() - 1)][axis]
+                    + anchors[(index + 2).min(anchors.len() - 1)][axis])
+                    / 16.0;
+            }
+        }
+        anchors = filtered;
     }
-    let last = samples[samples.len() - 1];
-    points.push(to_point(last[0], last[1]));
+    let mut curve = Vec::with_capacity(anchors.len() * 8);
+    for index in 0..anchors.len() - 1 {
+        let a = anchors[index];
+        let b = anchors[index + 1];
+        let before = anchors[index.saturating_sub(1)];
+        let after = anchors[(index + 2).min(anchors.len() - 1)];
+        let distance = (b[0] - a[0]).hypot(b[1] - a[1]);
+        let subdivisions = ((distance / 8.0).ceil() as usize).clamp(2, 8);
+        for step in 0..subdivisions {
+            let t = step as f64 / subdivisions as f64;
+            let t2 = t * t;
+            let t3 = t2 * t;
+            let mut point = [0.0; 2];
+            for axis in 0..2 {
+                let start_tangent = (b[axis] - before[axis]) * 0.5;
+                let end_tangent = (after[axis] - a[axis]) * 0.5;
+                point[axis] = (2.0 * t3 - 3.0 * t2 + 1.0) * a[axis]
+                    + (t3 - 2.0 * t2 + t) * start_tangent
+                    + (-2.0 * t3 + 3.0 * t2) * b[axis]
+                    + (t3 - t2) * end_tangent;
+            }
+            curve.push(point);
+        }
+    }
+    curve.push(*anchors.last().unwrap());
+    let total: f64 = curve
+        .windows(2)
+        .map(|pair| (pair[1][0] - pair[0][0]).hypot(pair[1][1] - pair[0][1]))
+        .sum();
+    if total <= 0.0 || !total.is_finite() {
+        return Err(Failure {
+            kind: "InvalidPath".into(),
+            message: "The curve has no measurable length".into(),
+        });
+    }
+    let phase = if options.motion_phase.is_finite() {
+        f64::from(options.motion_phase.clamp(-100_000.0, 100_000.0))
+    } else {
+        0.0
+    };
+    let depth = f64::from(options.motion_depth.min(20));
+    let mut traveled = 0.0;
+    let mut points = Vec::with_capacity(curve.len());
+    for index in 0..curve.len() {
+        if index > 0 {
+            traveled += (curve[index][0] - curve[index - 1][0])
+                .hypot(curve[index][1] - curve[index - 1][1]);
+        }
+        let t = traveled / total;
+        let before = curve[index.saturating_sub(1)];
+        let after = curve[(index + 1).min(curve.len() - 1)];
+        let tangent = [after[0] - before[0], after[1] - before[1]];
+        let length = tangent[0].hypot(tangent[1]).max(1.0);
+        let envelope = (core::f64::consts::PI * t).sin().powi(2);
+        let wave = 0.7 * (t * 13.0 + phase).sin() + 0.3 * (t * 29.0 - phase * 0.71).sin();
+        let offset = depth * envelope * wave;
+        let x = curve[index][0] - tangent[1] / length * offset;
+        let y = curve[index][1] + tangent[0] / length * offset;
+        if x.abs() > 30_000.0 || y.abs() > 30_000.0 {
+            return Err(Failure {
+                kind: "InvalidPath".into(),
+                message: "The curve exceeds the canvas limits".into(),
+            });
+        }
+        points.push(FlowPoint {
+            x: path_units(x, options.font_size),
+            y: path_units(y, options.font_size),
+        });
+    }
     Ok(points)
 }
 
@@ -516,12 +599,6 @@ fn layout(scene: &str, text: &str, options: &Options) -> Result<Data, Failure> {
             message: "The demo accepts at most 4096 UTF-8 bytes".into(),
         });
     }
-    if scene == "geometry" && text.chars().count() > 80 {
-        return Err(Failure {
-            kind: "TextLimit".into(),
-            message: "The curve accepts at most 80 characters".into(),
-        });
-    }
     let font = DemoFont;
     let shaping = DemoShaping;
     let simple = SimpleTypeface::new(&font);
@@ -533,11 +610,19 @@ fn layout(scene: &str, text: &str, options: &Options) -> Result<Data, Failure> {
         _ => &simple,
     };
     let font_size = options.font_size.clamp(12, 96);
-    let max_width = if scene == "geometry" {
-        100_000
+    let points = if scene == "geometry" {
+        Some(smooth_path(options)?)
     } else {
-        to_units(options.width.clamp(32, 1200), font_size).max(1)
+        None
     };
+    let baseline = points
+        .as_ref()
+        .map(|points| PolylineBaseline::new(points).map_err(|error| fail("Baseline", error)))
+        .transpose()?;
+    let max_width = baseline
+        .as_ref()
+        .map(|baseline| baseline.length() as usize)
+        .unwrap_or_else(|| to_units(options.width.clamp(32, 1200), font_size).max(1));
     let kern = [FontFeature::new(*b"kern", 1)];
     let mut flow = TextFlow::new(text, max_width)
         .with_line_height(to_units(options.line_height, font_size))
@@ -550,10 +635,7 @@ fn layout(scene: &str, text: &str, options: &Options) -> Result<Data, Failure> {
         .with_letter_spacing(options.letter_spacing)
         .with_word_spacing(options.word_spacing);
     if scene == "geometry" {
-        flow = flow
-            .with_wrap(WrapMode::NoWrap)
-            .with_alignment(Alignment::Start)
-            .with_max_lines(1);
+        flow = flow.with_wrap(WrapMode::WordOrGrapheme).with_max_lines(1);
     }
     if options.kern && scene != "geometry" {
         flow = flow.with_features(&kern);
@@ -593,13 +675,7 @@ fn layout(scene: &str, text: &str, options: &Options) -> Result<Data, Failure> {
     let result = flow
         .layout_with_scratch(&faces, &mut scratch)
         .map_err(|error| fail("Layout", error))?;
-    let points = if scene == "geometry" {
-        Some(smooth_path(options)?)
-    } else {
-        None
-    };
-    let (frames, caret_frames) = if let Some(points) = &points {
-        let baseline = PolylineBaseline::new(points).map_err(|error| fail("Baseline", error))?;
+    let (frames, caret_frames) = if let Some(baseline) = baseline {
         let baselines = [baseline];
         let operation = result.place_on(&baselines);
         let required = operation.preflight().map_err(|error| match error {
@@ -607,8 +683,8 @@ fn layout(scene: &str, text: &str, options: &Options) -> Result<Data, Failure> {
                 error: BaselineError::OutOfRange { .. },
                 ..
             } => Failure {
-                kind: "PathTooShort".into(),
-                message: "Draw a longer curve or shorten the text".into(),
+                kind: "NoGlyphFits".into(),
+                message: "The curve cannot hold a glyph at this size".into(),
             },
             _ => fail("Baseline", error),
         })?;

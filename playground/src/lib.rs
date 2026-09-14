@@ -197,9 +197,41 @@ mod tests {
     }
 
     #[test]
-    fn geometry_rejects_short_and_unbounded_paths() {
-        let long_text = analyze("geometry", &"a".repeat(81), &Options::default());
-        assert_eq!(long_text.error.unwrap().kind, "TextLimit");
+    fn geometry_overflow_fits_the_curve() {
+        let sample = SCENES
+            .iter()
+            .find(|scene| scene.id == "geometry")
+            .unwrap()
+            .sample;
+        assert!(sample.chars().count() > 250);
+        for mode in ["clip", "ellipsis"] {
+            let result = analyze(
+                "geometry",
+                sample,
+                &Options {
+                    overflow: mode.into(),
+                    ..Options::default()
+                },
+            );
+            assert!(
+                result.ok,
+                "{mode}: {:?}",
+                result.error.map(|error| error.message)
+            );
+            let json = serde_json::to_value(result).unwrap();
+            let glyphs = json["data"]["glyphs"].as_array().unwrap();
+            assert_eq!(json["data"]["lines"].as_array().unwrap().len(), 1);
+            assert!(glyphs.len() < sample.chars().count());
+            assert!(glyphs.last().unwrap()["frame"].is_object());
+            assert_eq!(
+                glyphs.last().unwrap()["character"] == "…",
+                mode == "ellipsis"
+            );
+        }
+    }
+
+    #[test]
+    fn geometry_accepts_short_paths_and_rejects_invalid_ones() {
         let short = analyze(
             "geometry",
             "Lorem ipsum dolor sit amet.",
@@ -208,7 +240,16 @@ mod tests {
                 ..Options::default()
             },
         );
-        assert_eq!(short.error.unwrap().kind, "PathTooShort");
+        assert!(short.ok, "{:?}", short.error.map(|error| error.message));
+        let tiny = analyze(
+            "geometry",
+            "Lorem ipsum dolor sit amet.",
+            &Options {
+                path: Some(vec![[0, 64], [2, 64]]),
+                ..Options::default()
+            },
+        );
+        assert_eq!(tiny.error.unwrap().kind, "NoGlyphFits");
         let dense = analyze(
             "geometry",
             "Lorem",
@@ -227,6 +268,35 @@ mod tests {
             },
         );
         assert_eq!(extreme.error.unwrap().kind, "InvalidPath");
+    }
+
+    #[test]
+    fn geometry_spline_is_bounded_and_motion_is_deterministic() {
+        let path = Some(vec![[0, 80], [60, 40], [120, 115], [180, 50], [260, 90]]);
+        let analyze_phase = |phase| {
+            let result = analyze(
+                "geometry",
+                "Lorem ipsum",
+                &Options {
+                    path: path.clone(),
+                    motion_phase: phase,
+                    ..Options::default()
+                },
+            );
+            assert!(result.ok, "{:?}", result.error.map(|error| error.message));
+            serde_json::to_value(result).unwrap()["data"]["baselines"][0]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let first = analyze_phase(0.5);
+        let same = analyze_phase(0.5);
+        let changed = analyze_phase(1.5);
+        assert_eq!(first, same);
+        assert_ne!(first, changed);
+        assert_eq!(first.first(), changed.first());
+        assert_eq!(first.last(), changed.last());
+        assert!(first.len() > 20 && first.len() <= 512);
     }
 
     #[test]

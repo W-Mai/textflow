@@ -49,11 +49,12 @@ export function glyphTarget(glyph, pointer) {
   };
 }
 
-export function stepGlyph(glyph, target) {
-  glyph.vx = (glyph.vx + (target.x - glyph.dx) * .18) * .74;
-  glyph.vy = (glyph.vy + (target.y - glyph.dy) * .18) * .74;
-  glyph.dx += glyph.vx;
-  glyph.dy += glyph.vy;
+export function stepGlyph(glyph, target, step = 1) {
+  const damping = .74 ** step;
+  glyph.vx = (glyph.vx + (target.x - glyph.dx) * .18 * step) * damping;
+  glyph.vy = (glyph.vy + (target.y - glyph.dy) * .18 * step) * damping;
+  glyph.dx += glyph.vx * step;
+  glyph.dy += glyph.vy * step;
   if (!target.proximity && Math.abs(glyph.dx) + Math.abs(glyph.dy)
     + Math.abs(glyph.vx) + Math.abs(glyph.vy) < .08) {
     glyph.dx = glyph.dy = glyph.vx = glyph.vy = 0;

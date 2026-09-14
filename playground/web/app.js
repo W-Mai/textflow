@@ -166,7 +166,7 @@ function startAtmosphere() {
       return {...tile, glyphs};
     });
   };
-  const draw = (time) => {
+  const draw = (time, step = 0) => {
     const seconds = time / 1000;
     const pulse = revealPulse(seconds);
     const sweepX = -180 + (width + 360) * (seconds % 31 / 31);
@@ -188,7 +188,7 @@ function startAtmosphere() {
       let proximity = 0;
       for (const glyph of tile.glyphs) {
         const desired = glyphTarget(glyph, pointer);
-        moving = stepGlyph(glyph, desired) || moving;
+        moving = stepGlyph(glyph, desired, step) || moving;
         proximity = Math.max(proximity, desired.proximity);
       }
       const scan = pulse * Math.max(0, 1 - Math.abs(tile.x - sweepX) / 280);
@@ -209,18 +209,18 @@ function startAtmosphere() {
     draw(reducedMotion.matches ? 0 : performance.now());
   };
   const tick = (time) => {
-    if (time - last >= 1000 / 24) {
-      pointer.x += (target.x - pointer.x) * .14;
-      pointer.y += (target.y - pointer.y) * .14;
-      pointer.strength += (target.strength - pointer.strength) * .12;
-      draw(time);
-      last = time;
-    }
+    const step = last ? Math.min(2, (time - last) / (1000 / 24)) : 1;
+    pointer.x += (target.x - pointer.x) * (1 - .86 ** step);
+    pointer.y += (target.y - pointer.y) * (1 - .86 ** step);
+    pointer.strength += (target.strength - pointer.strength) * (1 - .88 ** step);
+    draw(time, step);
+    last = time;
     frame = requestAnimationFrame(tick);
   };
   const sync = () => {
     cancelAnimationFrame(frame);
     frame = 0;
+    last = 0;
     if (reducedMotion.matches) {
       pointer.strength = 0;
       target.strength = 0;
@@ -267,7 +267,6 @@ const refreshAtmosphereTheme = startAtmosphere();
 
 let baselineFrame = 0;
 let baselineTime = 0;
-let baselinePaint = 0;
 let baselineVisible = false;
 function baselineActive() {
   return state.scene === "geometry" && baselineVisible && (state.options.motionEnabled || drawRevealStart)
@@ -281,10 +280,7 @@ function baselineTick(time) {
     const revealFinished = drawRevealStart && time - drawRevealStart >= DRAW_REVEAL_MS;
     if (revealFinished) drawRevealStart = 0;
     if (state.options.motionEnabled) state.options.motionPhase = (state.options.motionPhase + elapsed * state.options.motionSpeed) % (200 * Math.PI);
-    if (revealFinished || time - baselinePaint >= 1000 / 24) {
-      baselinePaint = time;
-      refresh(!revealFinished);
-    }
+    refresh(!revealFinished);
   }
   if (baselineActive()) baselineFrame = requestAnimationFrame(baselineTick);
   else { baselineFrame = 0; baselineTime = 0; }

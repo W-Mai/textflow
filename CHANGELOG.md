@@ -14,6 +14,7 @@
 
 ### Changed
 
+- Baseline and atmospheric motion follow display refresh timing; repeated frames reuse glyph metrics and canvas backing storage.
 - Clicking the yuuu canvas briefly highlights Free draw without switching examples.
 - The Playground opens on the yuuu Baselines example.
 - Free draw hides its baseline guide by default and exposes a Show curve control.

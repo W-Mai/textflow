@@ -56,6 +56,18 @@ for (const [width, height] of [[320, 640], [1280, 720], [2560, 1440]]) {
     throw new Error("Pushed glyphs do not return to their original positions");
   }
 }
+const glyphAfterSecond = (fps) => {
+  const glyph = {dx: 0, dy: 0, vx: 0, vy: 0};
+  for (let frame = 0; frame < fps; frame++) stepGlyph(glyph, {x: 60, y: -30, proximity: 1}, 24 / fps);
+  return glyph;
+};
+const referenceGlyph = glyphAfterSecond(24);
+for (const fps of [60, 120]) {
+  const glyph = glyphAfterSecond(fps);
+  if (Math.hypot(glyph.dx - referenceGlyph.dx, glyph.dy - referenceGlyph.dy) > 2) {
+    throw new Error(`Typography motion changed speed at ${fps} FPS`);
+  }
+}
 if (revealPulse(0) !== 0 || revealPulse(16) !== 1 || revealPulse(23) !== 0) {
   throw new Error("Typography highlight changed its bounded cycle");
 }
@@ -181,6 +193,20 @@ if (!freeDraw.font?.startsWith("14px ") || !yuuuCurve.font?.startsWith("14px "))
 if (freeDraw.curves !== 0 || visibleCurve.curves !== 1 || yuuuCurve.curves !== 0) {
   throw new Error("The Free draw curve visibility control changed another baseline example");
 }
+let measurements = 0;
+const metricsContext = new Proxy({}, {
+  get: (_, method) => method === "measureText"
+    ? () => { measurements++; return {actualBoundingBoxLeft: 0, actualBoundingBoxRight: 8, actualBoundingBoxAscent: 10, actualBoundingBoxDescent: 3}; }
+    : () => {},
+  set: () => true,
+});
+const metricsStage = {projection: Stage.prototype.projection, canvas: {clientHeight: 200},
+  palette: {line: "#888", muted: "#888", runs: ["#888"]}, hitboxes: []};
+for (const fontSize of [32, 32, 40]) {
+  Stage.prototype.layout.call(metricsStage, metricsContext, 600, layout,
+    {fontSize, width: 600, overflow: "ellipsis"}, {boxes: false, carets: false});
+}
+if (measurements !== 2) throw new Error("Repeated frames measured the same glyph again");
 const clipLayout = {
   ...layout,
   runs: [{glyphs: [0, 2]}],

@@ -75,6 +75,8 @@ export class Stage {
     this.drawing = false;
     this.widthDragging = false;
     this.samples = [];
+    this.metricFont = "";
+    this.metrics = new Map();
     canvas.addEventListener("pointermove", (event) => {
       if (this.widthDragging) this.resizeWidth(event);
       else if (this.drawing) {
@@ -204,10 +206,12 @@ export class Stage {
     const height = Math.max(1, this.canvas.clientHeight);
     const width = Math.max(1, this.canvas.clientWidth);
     const ratio = Math.min(window.devicePixelRatio || 1, 2);
-    this.canvas.width = Math.round(width * ratio);
-    this.canvas.height = Math.round(height * ratio);
+    const pixelWidth = Math.round(width * ratio);
+    const pixelHeight = Math.round(height * ratio);
+    if (this.canvas.width !== pixelWidth) this.canvas.width = pixelWidth;
+    if (this.canvas.height !== pixelHeight) this.canvas.height = pixelHeight;
     const ctx = this.canvas.getContext("2d");
-    ctx.scale(ratio, ratio);
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     this.hitboxes = [];
     this.visibleGlyphs = null;
     this.background(ctx, width, height);
@@ -517,17 +521,25 @@ export class Stage {
       this.hitboxes.push(box);
     };
     const runIndex = (index) => data.runs.findIndex((run) => index >= run.glyphs[0] && index < run.glyphs[1]);
+    const font = options.example === "yuuu"
+      ? `${Math.round(size)}px "Times New Roman", Georgia, serif`
+      : `${Math.round(size)}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+    if (this.metricFont !== font || !this.metrics) {
+      this.metricFont = font;
+      this.metrics = new Map();
+    }
+    ctx.font = font;
     const glyphs = data.glyphs.map((glyph, index) => {
       const origin = glyph.frame?.origin ?? [glyph.origin[0] + glyph.offset[0], glyph.origin[1] + glyph.offset[1]];
       const x = x0 + origin[0] * scale;
       const y = y0 + origin[1] * scale;
       const advance = Math.max(8, glyph.advance[0] * scale);
-      const font = options.example === "yuuu"
-        ? `${Math.round(size)}px "Times New Roman", Georgia, serif`
-        : `${Math.round(size)}px ui-monospace, SFMono-Regular, Menlo, monospace`;
       const character = glyph.character || "□";
-      ctx.font = font;
-      const metrics = ctx.measureText(character);
+      let metrics = this.metrics.get(character);
+      if (!metrics) {
+        metrics = ctx.measureText(character);
+        this.metrics.set(character, metrics);
+      }
       const left = -(metrics?.actualBoundingBoxLeft ?? 0);
       const right = metrics?.actualBoundingBoxRight ?? metrics?.width ?? advance;
       return {

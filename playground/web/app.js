@@ -113,7 +113,12 @@ let exampleLoading = false;
 let freeDrawInviteTimer;
 let drawRevealStart = 0;
 const DRAW_REVEAL_MS = 1800;
-const DRAW_FADE_MS = 500;
+const DRAW_SPRING_END = 1 - 1.5 * Math.exp(-6) + 0.5 * Math.exp(-18);
+
+function drawSpringProgress(elapsed) {
+  const time = Math.max(0, Math.min(1, elapsed / DRAW_REVEAL_MS));
+  return (1 - 1.5 * Math.exp(-6 * time) + 0.5 * Math.exp(-18 * time)) / DRAW_SPRING_END;
+}
 let toastTimer;
 let updateFrame;
 const stage = new Stage($("stage"), inspect, (points) => {
@@ -273,7 +278,7 @@ function baselineTick(time) {
   const elapsed = baselineTime ? Math.min(0.1, (time - baselineTime) / 1000) : 0;
   baselineTime = time;
   if (!stage.drawing) {
-    const revealFinished = drawRevealStart && time - drawRevealStart >= DRAW_REVEAL_MS + DRAW_FADE_MS;
+    const revealFinished = drawRevealStart && time - drawRevealStart >= DRAW_REVEAL_MS;
     if (revealFinished) drawRevealStart = 0;
     if (state.options.motionEnabled) state.options.motionPhase = (state.options.motionPhase + elapsed * state.options.motionSpeed) % (200 * Math.PI);
     if (revealFinished || time - baselinePaint >= 1000 / 24) {
@@ -604,8 +609,7 @@ function sceneOptions() {
     example: state.baselineExample,
     pathBounds,
     pathScale: projection.fit,
-    reveal: Math.min(1, revealElapsed / DRAW_REVEAL_MS),
-    guideAlpha: Math.max(0, Math.min(1, (DRAW_REVEAL_MS + DRAW_FADE_MS - revealElapsed) / DRAW_FADE_MS)),
+    reveal: drawSpringProgress(revealElapsed),
     overflow: state.options.geometryOverflow,
     motionDepth: state.options.motionEnabled && !reducedMotion.matches && !stage.drawing ? state.options.motionDepth : 0,
   };

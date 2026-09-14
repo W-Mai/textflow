@@ -128,8 +128,9 @@ export class Stage {
     const emScale = options.fontSize / 1000;
     if (geometry && options.pathBounds) {
       const [left, top, boxWidth, boxHeight] = options.pathBounds;
-      const verticalMargin = options.example === "draw" ? 70 : Math.min(54, height * .18);
-      const fit = Math.min((width - 48) / boxWidth, (height - verticalMargin) / boxHeight);
+      const margin = options.example === "draw" ? 80 : Math.min(54, height * .18);
+      const fit = Math.min((width - (options.example === "draw" ? margin : 48)) / boxWidth,
+        (height - margin) / boxHeight);
       return {
         x0: (width - boxWidth * fit) / 2 - left * fit,
         y0: (height - boxHeight * fit) / 2 - top * fit,
@@ -306,7 +307,7 @@ export class Stage {
     ctx.restore();
   }
 
-  curve(ctx, points, projection, smooth = true, progress = 1) {
+  curve(ctx, points, projection, smooth = true, progress = 1, start = 0, showTip = true) {
     if (!points.length) return;
     if (points.length === 1) {
       ctx.fillStyle = this.palette.amber;
@@ -315,38 +316,43 @@ export class Stage {
       ctx.fill();
       return;
     }
-    let remaining = Infinity;
-    if (progress < 1) {
-      remaining = 0;
-      for (let index = 1; index < points.length; index++) {
-        remaining += Math.hypot(points[index][0] - points[index - 1][0], points[index][1] - points[index - 1][1]);
-      }
-      remaining *= Math.max(0, progress);
+    let length = 0;
+    for (let index = 1; index < points.length; index++) {
+      length += Math.hypot(points[index][0] - points[index - 1][0], points[index][1] - points[index - 1][1]);
     }
+    const from = length * Math.max(0, start);
+    const to = length * Math.max(0, progress);
     const x = (point) => projection.x0 + point[0] * projection.scale;
     const y = (point) => projection.y0 + point[1] * projection.scale;
     let tip = points[0];
+    let position = 0;
+    let started = false;
     ctx.beginPath();
-    ctx.moveTo(x(tip), y(tip));
     for (let index = 1; index < points.length; index++) {
+      const previous = points[index - 1];
       const next = points[index];
-      const distance = Math.hypot(next[0] - tip[0], next[1] - tip[1]);
-      if (remaining < distance) {
-        const fraction = remaining / distance;
-        tip = [tip[0] + (next[0] - tip[0]) * fraction, tip[1] + (next[1] - tip[1]) * fraction];
-        ctx.lineTo(x(tip), y(tip));
-        break;
+      const distance = Math.hypot(next[0] - previous[0], next[1] - previous[1]);
+      if (distance > 0 && position + distance >= from && position <= to) {
+        const first = Math.max(0, (from - position) / distance);
+        const last = Math.min(1, (to - position) / distance);
+        if (last >= first) {
+          const begin = [previous[0] + (next[0] - previous[0]) * first,
+            previous[1] + (next[1] - previous[1]) * first];
+          tip = [previous[0] + (next[0] - previous[0]) * last,
+            previous[1] + (next[1] - previous[1]) * last];
+          if (!started) { ctx.moveTo(x(begin), y(begin)); started = true; }
+          ctx.lineTo(x(tip), y(tip));
+        }
       }
-      ctx.lineTo(x(next), y(next));
-      remaining -= distance;
-      tip = next;
+      position += distance;
+      if (position >= to) break;
     }
     ctx.strokeStyle = this.palette.amber;
     ctx.lineWidth = progress < 1 ? 2.5 : smooth ? 2 : 1.5;
     ctx.stroke();
-    if (progress < 1) {
+    if (progress < 1 && showTip) {
       ctx.fillStyle = this.palette.amber;
-      ctx.beginPath(); ctx.arc(x(tip), y(tip), 3, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x(tip), y(tip), 3 * Math.min(1, (1 - progress) * 10), 0, Math.PI * 2); ctx.fill();
     }
     ctx.lineWidth = 1;
   }
@@ -540,10 +546,19 @@ export class Stage {
     this.visibleGlyphs = glyphs.filter(shown).length;
     for (const [index, line] of data.lines.entries()) {
       const baseline = data.baselines?.[index];
-      if (baseline && options.example === "draw" && (options.showCurve || options.guideAlpha > 0)) {
+      if (baseline && options.example === "draw" && (options.showCurve || reveal < 1)) {
         ctx.save();
-        ctx.globalAlpha = options.showCurve ? 1 : options.guideAlpha;
-        this.curve(ctx, baseline, {x0, y0, scale}, true, reveal);
+        const projection = {x0, y0, scale};
+        if (options.showCurve) this.curve(ctx, baseline, projection, true, reveal);
+        else {
+          const tail = Math.max(0, reveal - Math.min(.22, 1 - reveal));
+          for (let segment = 0; segment < 5; segment++) {
+            ctx.globalAlpha = (segment + 1) / 5;
+            this.curve(ctx, baseline, projection, true,
+              tail + (reveal - tail) * (segment + 1) / 5,
+              tail + (reveal - tail) * segment / 5, segment === 4);
+          }
+        }
         ctx.restore();
       } else if (!baseline) {
         const y = y0 + line.origin[1] * scale;

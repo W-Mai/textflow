@@ -17,7 +17,7 @@ export const HEART_PATH = Array.from({length: 65}, (_, index) => {
   const angle = index * Math.PI / 32;
   const vertical = 45 + (-13 * Math.cos(angle) + 5 * Math.cos(2 * angle)
     + 2 * Math.cos(3 * angle) + Math.cos(4 * angle)) * 6.3;
-  return [Math.round(345 + 200 * Math.sin(angle) ** 3 + (vertical - 45) * .2), Math.round(vertical)];
+  return [Math.round(345 + 90 * Math.sin(angle) ** 3 + (vertical - 45) * .2), Math.round(vertical)];
 });
 const heartXs = HEART_PATH.map(([x]) => x);
 const heartYs = HEART_PATH.map(([, y]) => y);

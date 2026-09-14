@@ -4,7 +4,7 @@
 
 ### Added
 
-- Free draw opens with a tilted heart baseline drawn progressively across the canvas.
+- Free draw opens with a spring-timed near-square heart; its guide clears behind the tip unless Show curve is enabled.
 - A Playground budget panel reports feature-specific reference WASM sizes, memory capacities, metered work, and browser-measured throughput.
 
 ### Fixed

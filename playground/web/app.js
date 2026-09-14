@@ -2,6 +2,7 @@ import { FeatureGraph, renderFeatures } from "./features.js";
 import { Stage, stageSummary } from "./stage.js";
 import { DocsView } from "./docs.js";
 import { renderRust } from "./rust-highlight.js";
+import { loadPortrait, ODYSSEY_SOURCE, ODYSSEY_TEXT } from "./baseline-examples.js";
 
 const $ = (id) => document.getElementById(id);
 const state = {
@@ -15,6 +16,9 @@ const state = {
   selectedFile: "src/main.rs",
   docs: null,
   descriptions: new Map(),
+  baselineExample: "draw",
+  baselineDrafts: {draw: null, odyssey: null},
+  portrait: null,
   options: {
     width: 480, fontSize: 32, lineHeight: 42, lineSpacing: 8,
     direction: "auto", wrap: "word", alignment: "start", overflow: "clip",
@@ -46,6 +50,49 @@ const controls = [
   {key: "textLimit", label: "Text limit · bytes", type: "range", min: 4, max: 4096, step: 4, only: "workspace"},
   {key: "memoryLimit", label: "Private buffer limit", type: "range", min: 256, max: 131072, step: 256, only: "workspace"},
 ];
+const baselineFields = ["fontSize", "alignment", "geometryOverflow", "letterSpacing", "wordSpacing", "smoothing", "motionEnabled", "motionDepth", "motionSpeed"];
+
+function captureBaseline() {
+  return {
+    text: $("source").value,
+    path: state.options.path,
+    settings: Object.fromEntries(baselineFields.map((key) => [key, state.options[key]])),
+  };
+}
+
+function restoreBaseline(draft) {
+  $("source").value = draft.text;
+  state.options.path = draft.path;
+  Object.assign(state.options, draft.settings);
+}
+
+async function selectBaselineExample(example) {
+  if (state.scene !== "geometry" || example === state.baselineExample || !["draw", "odyssey"].includes(example)) return;
+  let portrait;
+  if (example === "odyssey") {
+    try { portrait = await loadPortrait(); }
+    catch (error) { toast(String(error)); renderControls(); return; }
+    if (state.scene !== "geometry") return;
+  }
+  state.baselineDrafts[state.baselineExample] = captureBaseline();
+  state.baselineExample = example;
+  if (portrait) state.portrait = portrait;
+  let draft = state.baselineDrafts[example];
+  if (!draft) {
+    draft = {
+      text: ODYSSEY_TEXT,
+      path: state.portrait.points,
+      settings: {...captureBaseline().settings, fontSize: 16, smoothing: 0, motionDepth: 2},
+    };
+    state.baselineDrafts[example] = draft;
+  }
+  restoreBaseline(draft);
+  stage.setEditable(example === "draw");
+  $("reset-path").hidden = example !== "draw";
+  renderControls();
+  refresh();
+  syncBaselineMotion();
+}
 
 let toastTimer;
 let updateFrame;
@@ -247,9 +294,40 @@ function shapingScene() {
 function renderControls() {
   const target = $("controls");
   target.replaceChildren();
+  if (state.scene === "geometry") {
+    const label = document.createElement("label");
+    label.className = "control";
+    const name = document.createElement("span");
+    name.className = "control-top";
+    name.textContent = "Example";
+    const select = document.createElement("select");
+    for (const [value, text] of [["draw", "Free draw"], ["odyssey", "Odyssey · Ithaca"]]) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = text;
+      select.append(option);
+    }
+    select.value = state.baselineExample;
+    select.addEventListener("change", () => {
+      select.disabled = true;
+      selectBaselineExample(select.value);
+    });
+    label.append(name, select);
+    target.append(label);
+    if (state.baselineExample === "odyssey") {
+      const source = document.createElement("a");
+      source.className = "example-source";
+      source.href = ODYSSEY_SOURCE;
+      source.target = "_blank";
+      source.rel = "noreferrer";
+      source.textContent = "Homer · Odyssey 9.21–28 ↗";
+      target.append(source);
+    }
+  }
   for (const definition of controls) {
     if (definition.only && definition.only !== state.scene) continue;
     if (state.scene === "geometry" && !["fontSize", "geometryOverflow", "alignment", "letterSpacing", "wordSpacing", "smoothing", "motionEnabled", "motionDepth", "motionSpeed"].includes(definition.key)) continue;
+    if (state.baselineExample === "odyssey" && definition.key === "smoothing") continue;
     if (definition.needs === "shaping" && !shapingScene()) continue;
     if (definition.needs === "bidi" && ["core", "unicode"].includes(state.scene)) continue;
     const label = document.createElement("label");
@@ -341,11 +419,14 @@ function renderFeatureState() {
 function selectScene(id) {
   const scene = state.scenes.find((item) => item.id === id);
   if (!scene) return;
+  if (state.scene === "geometry") state.baselineDrafts[state.baselineExample] = captureBaseline();
   for (const feature of scene.requires) state.graph.enable(feature);
   state.scene = id;
-  stage.setEditable(id === "geometry");
-  $("reset-path").hidden = id !== "geometry";
-  $("source").value = scene.sample;
+  stage.setEditable(id === "geometry" && state.baselineExample === "draw");
+  $("reset-path").hidden = id !== "geometry" || state.baselineExample !== "draw";
+  const baselineDraft = state.baselineDrafts[state.baselineExample];
+  if (id === "geometry" && baselineDraft) restoreBaseline(baselineDraft);
+  else $("source").value = scene.sample;
   $("scene-title").textContent = scene.label;
   $("scene-description").textContent = scene.description;
   $("scene-counter").textContent = `${String(state.scenes.indexOf(scene) + 1).padStart(2, "0")} / ${String(state.scenes.length).padStart(2, "0")}`;
@@ -362,9 +443,12 @@ function schedule() {
 }
 
 function sceneOptions() {
-  if (state.scene !== "geometry") return state.options;
+  if (state.scene !== "geometry") return {...state.options, path: null};
   return {
     ...state.options,
+    pathSampled: state.baselineExample === "odyssey",
+    example: state.baselineExample,
+    pathBounds: state.baselineExample === "odyssey" ? state.portrait?.viewBox : null,
     overflow: state.options.geometryOverflow,
     motionDepth: state.options.motionEnabled && !reducedMotion.matches && !stage.drawing ? state.options.motionDepth : 0,
   };

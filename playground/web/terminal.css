@@ -219,6 +219,8 @@ body { background: var(--bg); color: var(--text); }
 .stage-toggles, .control-top, .control-check { color: var(--muted); }
 .stage-footer span:first-child, .inspector pre { color: var(--mint); }
 .control-top output { color: var(--rust); }
+.example-source { display: block; width: fit-content; max-width: 100%; margin: -3px 0 5px; color: var(--muted); font: 10px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.example-source:hover { color: var(--rust); }
 .control input[type="range"] { appearance: none; height: 16px; background: transparent; }
 .control input[type="range"]::-webkit-slider-runnable-track { height: 3px; background: var(--line); }
 .control input[type="range"]::-webkit-slider-thumb {

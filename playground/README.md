@@ -11,6 +11,6 @@ python3 -m http.server 8137 --directory playground/dist
 
 The core crate remains independent of the playground crate. The browser runs nine scenes through the TextFlow API and reports unsupported input or capacity failures directly. The glyph adapter is synthetic; its displayed outlines come from browser fonts, while positions, runs, and carets come from TextFlow.
 
-The Baselines scene smooths a hand-drawn path and samples animated glyph placement along it. Font size, spacing, alignment, overflow, smoothing, and motion are adjustable.
+The Baselines scene supports up to 512 hand-drawn anchors, smooths the path, and samples animated glyph placement along it. The Odyssey example places Homer's Greek text on a portrait curve. Switching examples preserves each text and path. Font size, spacing, alignment, overflow, smoothing, and motion are adjustable.
 
 `tools/check-playground.sh` runs the root crate, extractor, scaffold compile matrix, WebAssembly smoke test, and JavaScript syntax checks.

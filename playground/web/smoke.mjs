@@ -3,6 +3,25 @@ import init, {analyze_scene, feature_catalog, scene_catalog, scaffold_files, zip
 import {FeatureGraph} from "./features.js";
 import {Stage, containsHitbox, stageSummary} from "./stage.js";
 import {rustTokens} from "./rust-highlight.js";
+import {ODYSSEY_TEXT, samplePath} from "./baseline-examples.js";
+
+const sampled = samplePath({
+  getTotalLength: () => 200,
+  getPointAtLength: (length) => ({x: length, y: 25}),
+}, 4);
+if (JSON.stringify(sampled) !== JSON.stringify([[0, 25], [50, 25], [100, 25], [150, 25], [200, 25]])) {
+  throw new Error("SVG path sampling changed route order");
+}
+let rejected = false;
+try { samplePath({getTotalLength: () => 0}, 4); }
+catch { rejected = true; }
+if (!rejected) throw new Error("Degenerate SVG path was accepted");
+const portraitProjection = Stage.prototype.projection(600, 400, {
+  fontSize: 16, example: "odyssey", pathBounds: [25, 12, 203, 224],
+}, true);
+if (portraitProjection.fit <= 1 || portraitProjection.y0 + 12 * portraitProjection.fit <= 0) {
+  throw new Error("Portrait path did not fit the stage");
+}
 
 const snippet = 'let value = TextFlow::new("<tag>", 12); // safe\n';
 const tokens = rustTokens(snippet);
@@ -77,6 +96,12 @@ for (const scene of scenes) {
   const result = analyze_scene(scene.id, scene.sample, {width: 480, fontSize: 32});
   if (!result.ok || !result.data) throw new Error(`${scene.id}: ${JSON.stringify(result.error)}`);
   if (!stageSummary(result)) throw new Error(`${scene.id}: summary missing`);
+}
+const greek = analyze_scene("geometry", ODYSSEY_TEXT, {
+  fontSize: 16, path: sampled, pathSampled: true, smoothing: 4, motionDepth: 0, overflow: "ellipsis",
+});
+if (!greek.ok || !greek.data.glyphs.length || greek.data.baselines[0].length !== sampled.length) {
+  throw new Error(`Odyssey example failed: ${JSON.stringify(greek.error)}`);
 }
 const scaffold = scaffold_files(["script-devanagari", "alloc"]);
 if (!scaffold.ok || scaffold.files.length !== 3) throw new Error("Scaffold failed");

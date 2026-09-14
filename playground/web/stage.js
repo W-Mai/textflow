@@ -81,8 +81,18 @@ export class Stage {
     this.canvas.style.cursor = editable ? "crosshair" : "default";
   }
 
-  projection(width, options, geometry) {
+  projection(width, height, options, geometry) {
     const emScale = options.fontSize / 1000;
+    if (geometry && options.example === "odyssey" && options.pathBounds) {
+      const [left, top, boxWidth, boxHeight] = options.pathBounds;
+      const fit = Math.min((width - 64) / boxWidth, (height - Math.min(72, height * .24)) / boxHeight);
+      return {
+        x0: (width - boxWidth * fit) / 2 - left * fit,
+        y0: (height - boxHeight * fit) / 2 - top * fit,
+        scale: emScale * fit,
+        fit,
+      };
+    }
     const extent = geometry ? 640 : options.width;
     const fit = Math.min(1, Math.max(1, width - 74) / Math.max(1, extent));
     return {x0: 29, y0: 98, scale: emScale * fit, fit};
@@ -94,11 +104,11 @@ export class Stage {
     const bounds = this.canvas.getBoundingClientRect();
     const x = Math.max(0, Math.min(bounds.width, event.clientX - bounds.left));
     const y = Math.max(0, Math.min(bounds.height, event.clientY - bounds.top));
-    const {x0, y0, fit} = this.projection(bounds.width, options, true);
+    const {x0, y0, fit} = this.projection(bounds.width, bounds.height, options, true);
     const point = [Math.max(-30_000, Math.min(30_000, Math.round((x - x0) / fit))), Math.max(-30_000, Math.min(30_000, Math.round((y - y0) / fit)))];
     const previous = this.samples.at(-1);
     if (previous && Math.hypot(point[0] - previous[0], point[1] - previous[1]) < 3) return;
-    if (this.samples.length >= 64) this.samples = this.samples.filter((_, index) => index % 2 === 0);
+    if (this.samples.length >= 512) this.samples = this.samples.filter((_, index) => index % 2 === 0);
     this.samples.push(point);
     this.onPathChange(this.samples.slice());
   }
@@ -133,10 +143,10 @@ export class Stage {
     this.background(ctx, width, height);
     if (this.editable && !response?.ok) {
       if (options.path?.length) {
-        const {x0, y0, fit} = this.projection(width, options, true);
+        const {x0, y0, fit} = this.projection(width, height, options, true);
         this.curve(ctx, options.path, {x0, y0, scale: fit}, false);
       } else if (this.lastBaseline) {
-        const projection = this.projection(width, {fontSize: this.lastBaseline.fontSize}, true);
+        const projection = this.projection(width, height, {fontSize: this.lastBaseline.fontSize}, true);
         this.curve(ctx, this.lastBaseline.points, projection);
       }
     }
@@ -267,8 +277,8 @@ export class Stage {
   }
 
   layout(ctx, width, data, options, overlays) {
-    const {x0, y0, scale, fit} = this.projection(width, options, data.geometry);
-    const size = Math.max(12, options.fontSize * fit);
+    const {x0, y0, scale, fit} = this.projection(width, this.canvas.clientHeight, options, data.geometry);
+    const size = Math.max(options.example === "odyssey" ? 8 : 12, options.fontSize * fit);
     const clipRight = options.overflow === "clip" && !data.geometry ? x0 + options.width * fit : null;
     const addHitbox = (box) => {
       if (clipRight !== null) {
@@ -309,7 +319,9 @@ export class Stage {
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(angle);
-      ctx.font = `${Math.round(size)}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+      ctx.font = options.example === "odyssey"
+        ? `${Math.round(size)}px "Times New Roman", Georgia, serif`
+        : `${Math.round(size)}px ui-monospace, SFMono-Regular, Menlo, monospace`;
       const metrics = ctx.measureText(character);
       const left = -(metrics?.actualBoundingBoxLeft ?? 0);
       const right = metrics?.actualBoundingBoxRight ?? metrics?.width ?? advance;

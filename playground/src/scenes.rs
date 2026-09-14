@@ -32,6 +32,7 @@ pub struct Options {
     pub text_limit: usize,
     pub memory_limit: usize,
     pub path: Option<Vec<[i32; 2]>>,
+    pub path_sampled: bool,
     pub smoothing: u8,
     pub motion_depth: u8,
     pub motion_phase: f32,
@@ -55,6 +56,7 @@ impl Default for Options {
             text_limit: 4096,
             memory_limit: 131_072,
             path: None,
+            path_sampled: false,
             smoothing: 2,
             motion_depth: 8,
             motion_phase: 0.0,
@@ -380,7 +382,9 @@ fn path_units(value: f64, font_size: u32) -> i32 {
 
 fn smooth_path(options: &Options) -> Result<Vec<FlowPoint>, Failure> {
     let samples = options.path.as_deref().unwrap_or(&DEFAULT_PATH);
-    if !(2..=64).contains(&samples.len())
+    let limit = if options.path_sampled { 2049 } else { 512 };
+    if !(2..=limit).contains(&samples.len())
+        || (options.path_sampled && options.path.is_none())
         || samples
             .iter()
             .flatten()
@@ -388,14 +392,23 @@ fn smooth_path(options: &Options) -> Result<Vec<FlowPoint>, Failure> {
     {
         return Err(Failure {
             kind: "InvalidPath".into(),
-            message: "Draw a curve with 2–64 points inside the canvas".into(),
+            message: if options.path_sampled {
+                "The example path needs 2–2049 points inside the canvas"
+            } else {
+                "Draw a curve with 2–512 points inside the canvas"
+            }
+            .into(),
         });
     }
     let mut anchors: Vec<[f64; 2]> = samples
         .iter()
         .map(|point| [f64::from(point[0]), f64::from(point[1])])
         .collect();
-    for _ in 0..options.smoothing.min(4) {
+    for _ in 0..if options.path_sampled {
+        0
+    } else {
+        options.smoothing.min(4)
+    } {
         let mut filtered = anchors.clone();
         for index in 1..anchors.len() - 1 {
             for axis in 0..2 {
@@ -409,31 +422,36 @@ fn smooth_path(options: &Options) -> Result<Vec<FlowPoint>, Failure> {
         }
         anchors = filtered;
     }
-    let mut curve = Vec::with_capacity(anchors.len() * 8);
-    for index in 0..anchors.len() - 1 {
-        let a = anchors[index];
-        let b = anchors[index + 1];
-        let before = anchors[index.saturating_sub(1)];
-        let after = anchors[(index + 2).min(anchors.len() - 1)];
-        let distance = (b[0] - a[0]).hypot(b[1] - a[1]);
-        let subdivisions = ((distance / 8.0).ceil() as usize).clamp(2, 8);
-        for step in 0..subdivisions {
-            let t = step as f64 / subdivisions as f64;
-            let t2 = t * t;
-            let t3 = t2 * t;
-            let mut point = [0.0; 2];
-            for axis in 0..2 {
-                let start_tangent = (b[axis] - before[axis]) * 0.5;
-                let end_tangent = (after[axis] - a[axis]) * 0.5;
-                point[axis] = (2.0 * t3 - 3.0 * t2 + 1.0) * a[axis]
-                    + (t3 - 2.0 * t2 + t) * start_tangent
-                    + (-2.0 * t3 + 3.0 * t2) * b[axis]
-                    + (t3 - t2) * end_tangent;
+    let curve = if options.path_sampled {
+        anchors
+    } else {
+        let mut curve = Vec::with_capacity(anchors.len() * 8);
+        for index in 0..anchors.len() - 1 {
+            let a = anchors[index];
+            let b = anchors[index + 1];
+            let before = anchors[index.saturating_sub(1)];
+            let after = anchors[(index + 2).min(anchors.len() - 1)];
+            let distance = (b[0] - a[0]).hypot(b[1] - a[1]);
+            let subdivisions = ((distance / 8.0).ceil() as usize).clamp(2, 8);
+            for step in 0..subdivisions {
+                let t = step as f64 / subdivisions as f64;
+                let t2 = t * t;
+                let t3 = t2 * t;
+                let mut point = [0.0; 2];
+                for axis in 0..2 {
+                    let start_tangent = (b[axis] - before[axis]) * 0.5;
+                    let end_tangent = (after[axis] - a[axis]) * 0.5;
+                    point[axis] = (2.0 * t3 - 3.0 * t2 + 1.0) * a[axis]
+                        + (t3 - 2.0 * t2 + t) * start_tangent
+                        + (-2.0 * t3 + 3.0 * t2) * b[axis]
+                        + (t3 - t2) * end_tangent;
+                }
+                curve.push(point);
             }
-            curve.push(point);
         }
-    }
-    curve.push(*anchors.last().unwrap());
+        curve.push(*anchors.last().unwrap());
+        curve
+    };
     let total: f64 = curve
         .windows(2)
         .map(|pair| (pair[1][0] - pair[0][0]).hypot(pair[1][1] - pair[0][1]))

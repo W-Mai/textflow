@@ -254,7 +254,7 @@ mod tests {
             "geometry",
             "Lorem",
             &Options {
-                path: Some(vec![[0, 0]; 65]),
+                path: Some(vec![[0, 0]; 513]),
                 ..Options::default()
             },
         );
@@ -268,6 +268,68 @@ mod tests {
             },
         );
         assert_eq!(extreme.error.unwrap().kind, "InvalidPath");
+    }
+
+    #[test]
+    fn geometry_accepts_512_hand_drawn_anchors() {
+        let result = analyze(
+            "geometry",
+            "ναιετάω δ' Ἰθάκην",
+            &Options {
+                path: Some((0..512).map(|x| [x, 64]).collect()),
+                motion_depth: 0,
+                ..Options::default()
+            },
+        );
+        assert!(result.ok, "{:?}", result.error.map(|error| error.message));
+        let json = serde_json::to_value(result).unwrap();
+        let points = json["data"]["baselines"][0].as_array().unwrap();
+        assert!(points.len() >= 512 && points.len() <= 4097);
+        assert!(json["data"]["glyphs"][0]["frame"].is_object());
+    }
+
+    #[test]
+    fn geometry_sampled_path_keeps_points_and_checks_capacity() {
+        let result = analyze(
+            "geometry",
+            "ναιετάω δ' Ἰθάκην",
+            &Options {
+                path: Some(vec![[0, 0], [100, 0], [100, 100]]),
+                path_sampled: true,
+                font_size: 16,
+                smoothing: 4,
+                motion_depth: 0,
+                ..Options::default()
+            },
+        );
+        assert!(result.ok, "{:?}", result.error.map(|error| error.message));
+        let json = serde_json::to_value(result).unwrap();
+        assert_eq!(
+            json["data"]["baselines"][0],
+            serde_json::json!([[0, 0], [6250, 0], [6250, 6250]])
+        );
+        assert!(json["data"]["glyphs"][0]["frame"].is_object());
+        let maximum = analyze(
+            "geometry",
+            "Ἰθάκην",
+            &Options {
+                path: Some((0..=2048).map(|x| [x, 0]).collect()),
+                path_sampled: true,
+                motion_depth: 0,
+                ..Options::default()
+            },
+        );
+        assert!(maximum.ok, "{:?}", maximum.error.map(|error| error.message));
+        let excessive = analyze(
+            "geometry",
+            "Ἰθάκην",
+            &Options {
+                path: Some(vec![[0, 0]; 2050]),
+                path_sampled: true,
+                ..Options::default()
+            },
+        );
+        assert_eq!(excessive.error.unwrap().kind, "InvalidPath");
     }
 
     #[test]

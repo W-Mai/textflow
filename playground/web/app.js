@@ -20,7 +20,8 @@ const state = {
     direction: "auto", wrap: "word", alignment: "start", overflow: "clip",
     maxLines: 12, letterSpacing: 0, wordSpacing: 0, kern: false,
     textLimit: 4096, memoryLimit: 131072,
-    path: null,
+    path: null, smoothing: 2, motionDepth: 8, motionPhase: 0,
+    motionEnabled: true, motionSpeed: 0.7, geometryOverflow: "ellipsis",
   },
 };
 
@@ -33,10 +34,15 @@ const controls = [
   {key: "wrap", label: "Wrap mode", type: "select", values: ["word", "word-or-grapheme", "grapheme", "none"], needs: "shaping"},
   {key: "alignment", label: "Alignment", type: "select", values: ["start", "center", "end", "justify"], needs: "shaping"},
   {key: "overflow", label: "Overflow", type: "select", values: ["clip", "ellipsis"], needs: "shaping"},
+  {key: "geometryOverflow", label: "Overflow", type: "select", values: ["clip", "ellipsis"], only: "geometry"},
   {key: "maxLines", label: "Maximum lines", type: "range", min: 1, max: 20, step: 1, needs: "shaping"},
   {key: "letterSpacing", label: "Letter spacing · units", type: "range", min: -80, max: 180, step: 10, needs: "shaping"},
   {key: "wordSpacing", label: "Word spacing · units", type: "range", min: -100, max: 250, step: 10, needs: "shaping"},
   {key: "kern", label: "Enable kern feature", type: "check", needs: "shaping"},
+  {key: "smoothing", label: "Smoothing", type: "range", min: 0, max: 4, step: 1, only: "geometry"},
+  {key: "motionEnabled", label: "Animate curve", type: "check", only: "geometry"},
+  {key: "motionDepth", label: "Motion depth · px", type: "range", min: 0, max: 20, step: 1, only: "geometry"},
+  {key: "motionSpeed", label: "Motion speed", type: "range", min: 0.2, max: 2, step: 0.1, only: "geometry"},
   {key: "textLimit", label: "Text limit · bytes", type: "range", min: 4, max: 4096, step: 4, only: "workspace"},
   {key: "memoryLimit", label: "Private buffer limit", type: "range", min: 256, max: 131072, step: 256, only: "workspace"},
 ];
@@ -92,6 +98,40 @@ function startAtmosphere() {
 }
 
 startAtmosphere();
+
+let baselineFrame = 0;
+let baselineTime = 0;
+let baselinePaint = 0;
+let baselineVisible = false;
+function baselineActive() {
+  return state.scene === "geometry" && baselineVisible && state.options.motionEnabled
+    && !reducedMotion.matches && !document.hidden && $("view-playground").classList.contains("is-active");
+}
+function baselineTick(time) {
+  if (!baselineActive()) { baselineFrame = 0; baselineTime = 0; return; }
+  const elapsed = baselineTime ? Math.min(0.1, (time - baselineTime) / 1000) : 0;
+  baselineTime = time;
+  if (!stage.drawing) {
+    state.options.motionPhase = (state.options.motionPhase + elapsed * state.options.motionSpeed) % (200 * Math.PI);
+    if (time - baselinePaint >= 1000 / 24) {
+      baselinePaint = time;
+      refresh(true);
+    }
+  }
+  baselineFrame = requestAnimationFrame(baselineTick);
+}
+function syncBaselineMotion() {
+  cancelAnimationFrame(baselineFrame);
+  baselineFrame = 0;
+  baselineTime = 0;
+  if (baselineActive()) baselineFrame = requestAnimationFrame(baselineTick);
+}
+document.addEventListener("visibilitychange", syncBaselineMotion);
+reducedMotion.addEventListener("change", () => { syncBaselineMotion(); schedule(); });
+new IntersectionObserver(([entry]) => {
+  baselineVisible = entry.isIntersecting;
+  syncBaselineMotion();
+}).observe($("stage"));
 
 try {
   const saved = localStorage.getItem("textflow-theme");
@@ -209,7 +249,7 @@ function renderControls() {
   target.replaceChildren();
   for (const definition of controls) {
     if (definition.only && definition.only !== state.scene) continue;
-    if (state.scene === "geometry" && !["fontSize", "letterSpacing", "wordSpacing"].includes(definition.key)) continue;
+    if (state.scene === "geometry" && !["fontSize", "geometryOverflow", "alignment", "letterSpacing", "wordSpacing", "smoothing", "motionEnabled", "motionDepth", "motionSpeed"].includes(definition.key)) continue;
     if (definition.needs === "shaping" && !shapingScene()) continue;
     if (definition.needs === "bidi" && ["core", "unicode"].includes(state.scene)) continue;
     const label = document.createElement("label");
@@ -252,6 +292,7 @@ function renderControls() {
       input.checked = state.options[definition.key];
       input.addEventListener("change", () => {
         state.options[definition.key] = input.checked;
+        syncBaselineMotion();
         schedule();
       });
       label.append(name, input);
@@ -312,32 +353,45 @@ function selectScene(id) {
   renderSceneTabs();
   renderControls();
   refresh();
+  syncBaselineMotion();
 }
 
 function schedule() {
   cancelAnimationFrame(updateFrame);
-  updateFrame = requestAnimationFrame(refresh);
+  updateFrame = requestAnimationFrame(() => refresh());
 }
 
-function refresh() {
+function sceneOptions() {
+  if (state.scene !== "geometry") return state.options;
+  return {
+    ...state.options,
+    overflow: state.options.geometryOverflow,
+    motionDepth: state.options.motionEnabled && !reducedMotion.matches && !stage.drawing ? state.options.motionDepth : 0,
+  };
+}
+
+function refresh(motionOnly = false) {
   if (!state.engine) return;
   const text = $("source").value;
-  $("byte-count").textContent = `${new TextEncoder().encode(text).length} UTF-8 BYTES`;
+  const options = sceneOptions();
+  if (!motionOnly) $("byte-count").textContent = `${new TextEncoder().encode(text).length} UTF-8 BYTES`;
   try {
-    state.response = state.engine.analyze_scene(state.scene, text, state.options);
+    state.response = state.engine.analyze_scene(state.scene, text, options);
   } catch (error) {
     state.response = {scene: state.scene, ok: false, error: {kind: "WasmError", message: String(error)}};
   }
-  renderRust($("code-preview"), state.response.code ?? "Engine unavailable");
+  if (!motionOnly) renderRust($("code-preview"), state.response.code ?? "Engine unavailable");
   const empty = $("canvas-empty");
   empty.hidden = state.scene === "geometry" || !!state.response.ok;
   empty.textContent = state.response.ok ? "" : `${state.response.error?.kind ?? "Error"}: ${state.response.error?.message ?? "Unknown failure"}`;
-  stage.render(state.response, text, state.options, {boxes: $("show-boxes").checked, carets: $("show-carets").checked});
+  stage.render(state.response, text, options, {boxes: $("show-boxes").checked, carets: $("show-carets").checked});
   const data = state.response.data;
   $("stage-summary").textContent = state.scene === "geometry" && !state.response.ok ? state.response.error?.message ?? "Draw a curve" : stageSummary(state.response);
-  $("unit-label").hidden = !state.response.ok || data.kind !== "layout";
-  $("inspector-count").textContent = state.response.ok ? data.kind.toUpperCase() : "ERROR";
-  inspect(null);
+  if (!motionOnly) {
+    $("unit-label").hidden = !state.response.ok || data.kind !== "layout";
+    $("inspector-count").textContent = state.response.ok ? data.kind.toUpperCase() : "ERROR";
+    inspect(null);
+  }
 }
 
 function renderScaffold() {
@@ -379,6 +433,7 @@ function switchView(name) {
     view.hidden = !active;
   }
   if (name === "playground") requestAnimationFrame(() => stage.redraw());
+  syncBaselineMotion();
 }
 
 async function initialize() {

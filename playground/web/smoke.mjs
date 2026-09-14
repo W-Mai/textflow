@@ -148,8 +148,9 @@ const layout = {
   glyphs: [{origin: [0, 0], offset: [0, 0], advance: [2000, 0], character: "A"}],
   carets: [],
 };
-function geometryFont(example) {
+function geometryFont(example, showCurve = false) {
   const fonts = [];
+  let curves = 0;
   const ctx = new Proxy({}, {
     get: (_, method) => method === "measureText"
       ? () => ({actualBoundingBoxLeft: 0, actualBoundingBoxRight: 8, actualBoundingBoxAscent: 10, actualBoundingBoxDescent: 3})
@@ -164,14 +165,21 @@ function geometryFont(example) {
     canvas: {clientHeight: 400},
     palette: {line: "#888", muted: "#888", runs: ["#888"]},
     hitboxes: [],
+    curve: () => {curves++;},
   };
-  Stage.prototype.layout.call(stage, ctx, 600, {...layout, geometry: true}, {
-    fontSize: 14, example, pathBounds: [25, 12, 203, 224], overflow: "ellipsis",
+  Stage.prototype.layout.call(stage, ctx, 600, {...layout, geometry: true, baselines: [[[0, 0], [100, 0]]]}, {
+    fontSize: 14, example, showCurve, pathBounds: [25, 12, 203, 224], overflow: "ellipsis",
   }, {boxes: false, carets: false});
-  return fonts.at(-1);
+  return {font: fonts.at(-1), curves};
 }
-if (!geometryFont("draw")?.startsWith("14px ") || !geometryFont("yuuu")?.startsWith("14px ")) {
+const freeDraw = geometryFont("draw");
+const visibleCurve = geometryFont("draw", true);
+const yuuuCurve = geometryFont("yuuu", true);
+if (!freeDraw.font?.startsWith("14px ") || !yuuuCurve.font?.startsWith("14px ")) {
   throw new Error("Baseline examples rendered different font sizes at 14 px");
+}
+if (freeDraw.curves !== 0 || visibleCurve.curves !== 1 || yuuuCurve.curves !== 0) {
+  throw new Error("The Free draw curve visibility control changed another baseline example");
 }
 const clipLayout = {
   ...layout,

@@ -208,7 +208,7 @@ export class Stage {
     this.hitboxes = [];
     this.visibleGlyphs = null;
     this.background(ctx, width, height);
-    if (this.editable && !response?.ok) {
+    if (this.editable && options.showCurve && !response?.ok) {
       if (options.path?.length) {
         const {x0, y0, fit} = this.projection(width, height, options, true);
         this.curve(ctx, options.path, {x0, y0, scale: fit}, false);
@@ -500,7 +500,7 @@ export class Stage {
     this.visibleGlyphs = visible ? visible.filter(Boolean).length : glyphs.length;
     for (const [index, line] of data.lines.entries()) {
       const baseline = data.baselines?.[index];
-      if (baseline && options.example !== "yuuu") {
+      if (baseline && options.example === "draw" && options.showCurve) {
         this.curve(ctx, baseline, {x0, y0, scale});
       } else if (!baseline) {
         const y = y0 + line.origin[1] * scale;

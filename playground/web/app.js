@@ -29,7 +29,7 @@ const state = {
     direction: "auto", wrap: "word", alignment: "start", overflow: "clip",
     maxLines: 12, letterSpacing: 0, wordSpacing: 0, kern: false,
     textLimit: 4096, memoryLimit: 131072,
-    path: null, smoothing: 2, motionDepth: 8, motionPhase: 0,
+    path: null, showCurve: false, smoothing: 2, motionDepth: 8, motionPhase: 0,
     motionEnabled: true, motionSpeed: 0.7, geometryOverflow: "ellipsis",
   },
 };
@@ -48,6 +48,7 @@ const controls = [
   {key: "letterSpacing", label: "Letter spacing · units", type: "range", min: -80, max: 180, step: 10, needs: "shaping"},
   {key: "wordSpacing", label: "Word spacing · units", type: "range", min: -100, max: 250, step: 10, needs: "shaping"},
   {key: "kern", label: "Enable kern feature", type: "check", needs: "shaping"},
+  {key: "showCurve", label: "Show curve", type: "check", only: "geometry"},
   {key: "smoothing", label: "Smoothing", type: "range", min: 0, max: 4, step: 1, only: "geometry"},
   {key: "motionEnabled", label: "Animate curve", type: "check", only: "geometry"},
   {key: "motionDepth", label: "Motion depth · px", type: "range", min: 0, max: 20, step: 1, only: "geometry"},
@@ -55,7 +56,7 @@ const controls = [
   {key: "textLimit", label: "Text limit · bytes", type: "range", min: 4, max: 4096, step: 4, only: "workspace"},
   {key: "memoryLimit", label: "Private buffer limit", type: "range", min: 256, max: 131072, step: 256, only: "workspace"},
 ];
-const baselineFields = ["fontSize", "alignment", "geometryOverflow", "letterSpacing", "wordSpacing", "smoothing", "motionEnabled", "motionDepth", "motionSpeed"];
+const baselineFields = ["fontSize", "alignment", "geometryOverflow", "letterSpacing", "wordSpacing", "showCurve", "smoothing", "motionEnabled", "motionDepth", "motionSpeed"];
 
 function captureBaseline() {
   return {
@@ -430,7 +431,8 @@ function renderControls() {
   for (const definition of controls) {
     if (definition.only && definition.only !== state.scene) continue;
     if (definition.key === "width" && ["unicode", "bidi"].includes(state.scene)) continue;
-    if (state.scene === "geometry" && !["fontSize", "geometryOverflow", "alignment", "letterSpacing", "wordSpacing", "smoothing", "motionEnabled", "motionDepth", "motionSpeed"].includes(definition.key)) continue;
+    if (state.scene === "geometry" && !["fontSize", "geometryOverflow", "alignment", "letterSpacing", "wordSpacing", "showCurve", "smoothing", "motionEnabled", "motionDepth", "motionSpeed"].includes(definition.key)) continue;
+    if (definition.key === "showCurve" && state.baselineExample !== "draw") continue;
     if (state.baselineExample === "yuuu" && definition.key === "smoothing") continue;
     if (definition.needs === "shaping" && !shapingScene()) continue;
     if (definition.needs === "bidi" && ["core", "unicode"].includes(state.scene)) continue;

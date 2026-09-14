@@ -13,6 +13,7 @@
 
 ### Changed
 
+- Free draw hides its baseline guide by default and exposes a Show curve control.
 - Site guides cover font adapters, positioned glyphs, bidi overflow, baseline placement, and bounded memory; the README includes a concise coordinate example.
 - Scaffold Rust files and API atlas code examples and signatures use syntax highlighting.
 - Scaffold manifest and README previews use TOML and Markdown syntax highlighting.

@@ -316,7 +316,7 @@ fn builder(scene: &str, options: &Options) -> String {
     }
     if scene == "geometry" {
         return format!(
-            "let baseline = PolylineBaseline::new(&points)?;\nlet layout = TextFlow::new(text, baseline.length() as usize)\n    .with_wrap(WrapMode::WordOrGrapheme)\n    .with_overflow(Overflow::{:?})\n    .with_alignment(Alignment::{:?})\n    .with_max_lines(1)\n    .with_letter_spacing({})\n    .with_word_spacing({})\n    .layout_with_scratch(&[&typeface], &mut scratch)?;\nlet placement = layout.place_on(&[baseline]);\nlet required = placement.preflight()?;\nplacement.place_into(\n    PlacementOutput::new(&mut glyph_frames[..required.glyphs])\n        .with_carets(&mut caret_frames[..required.carets])\n)?;",
+            "let baseline = PolylineBaseline::new(POINTS)?;\nlet layout = TextFlow::new(text, baseline.length() as usize)\n    .with_wrap(WrapMode::WordOrGrapheme)\n    .with_overflow(Overflow::{:?})\n    .with_alignment(Alignment::{:?})\n    .with_max_lines(1)\n    .with_letter_spacing({})\n    .with_word_spacing({})\n    .layout_with_scratch(&[&typeface], &mut scratch)?;\nlet placement = layout.place_on(&[baseline]);\nlet required = placement.preflight()?;\nplacement.place_into(\n    PlacementOutput::new(&mut glyph_frames[..required.glyphs])\n        .with_carets(&mut caret_frames[..required.carets])\n)?;",
             overflow(&options.overflow),
             alignment(&options.alignment),
             options.letter_spacing,

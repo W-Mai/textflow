@@ -3,6 +3,7 @@ import { Stage, stageSummary } from "./stage.js";
 import { DocsView } from "./docs.js";
 import { renderRust } from "./rust-highlight.js";
 import { loadPortrait, ODYSSEY_SOURCE, ODYSSEY_TEXT } from "./baseline-examples.js";
+import { formatBaselinePoints } from "./baseline-code.js";
 
 const $ = (id) => document.getElementById(id);
 const state = {
@@ -424,6 +425,7 @@ function selectScene(id) {
   state.scene = id;
   stage.setEditable(id === "geometry" && state.baselineExample === "draw");
   $("reset-path").hidden = id !== "geometry" || state.baselineExample !== "draw";
+  $("copy-points").hidden = id !== "geometry";
   const baselineDraft = state.baselineDrafts[state.baselineExample];
   if (id === "geometry" && baselineDraft) restoreBaseline(baselineDraft);
   else $("source").value = scene.sample;
@@ -472,6 +474,7 @@ function refresh(motionOnly = false) {
   const data = state.response.data;
   $("stage-summary").textContent = state.scene === "geometry" && !state.response.ok ? state.response.error?.message ?? "Draw a curve" : stageSummary(state.response);
   if (!motionOnly) {
+    $("copy-points").disabled = state.scene !== "geometry" || !state.response.ok || !data?.baselines?.[0]?.length;
     $("unit-label").hidden = !state.response.ok || data.kind !== "layout";
     $("inspector-count").textContent = state.response.ok ? data.kind.toUpperCase() : "ERROR";
     inspect(null);
@@ -561,6 +564,14 @@ $("reset-path").addEventListener("click", () => {
 });
 $("copy-command").addEventListener("click", () => copy($("add-command").textContent, "Command copied"));
 $("copy-code").addEventListener("click", () => copy($("code-preview").textContent, "API path copied"));
+$("copy-points").addEventListener("click", () => {
+  if (!state.engine || state.scene !== "geometry") return;
+  const result = state.engine.analyze_scene("geometry", $("source").value,
+    {...sceneOptions(), motionDepth: 0, motionPhase: 0});
+  if (!result.ok) { toast(result.error?.message ?? "Curve points are unavailable"); return; }
+  try { copy(formatBaselinePoints(result.data?.baselines?.[0]), "Curve points copied"); }
+  catch (error) { toast(error.message); }
+});
 $("copy-dependency").addEventListener("click", () => copy($("scaffold-dependency").textContent, "Manifest copied"));
 $("copy-file").addEventListener("click", () => copy($("file-source").textContent, "Source copied"));
 $("download-zip").addEventListener("click", () => {

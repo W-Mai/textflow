@@ -240,6 +240,8 @@ body { background: var(--bg); color: var(--text); }
 }
 .control select, .docs-nav input { background: var(--panel); border-color: var(--line); color: var(--text); }
 .code-preview, #file-source { color: var(--code); }
+.code-actions { display: flex; align-items: center; gap: 14px; }
+.code-actions .text-button:disabled { opacity: .4; cursor: default; }
 .workbench-main { overflow: visible; }
 .code-surface { position: sticky; top: 12px; z-index: 3; }
 .rust-token-keyword { color: var(--rust); }

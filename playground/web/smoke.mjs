@@ -4,6 +4,19 @@ import {FeatureGraph} from "./features.js";
 import {Stage, containsHitbox, stageSummary} from "./stage.js";
 import {rustTokens} from "./rust-highlight.js";
 import {ODYSSEY_TEXT, samplePath} from "./baseline-examples.js";
+import {formatBaselinePoints} from "./baseline-code.js";
+
+const pointCode = formatBaselinePoints([[12, -8], [80, 24]]);
+if (!pointCode.includes("const POINTS: &[FlowPoint]") || !pointCode.includes("FlowPoint { x: 12, y: -8 }")
+  || pointCode !== formatBaselinePoints([[12, -8], [80, 24]])) {
+  throw new Error("Baseline point export changed");
+}
+for (const invalid of [[], [[1, 2]], [[1, 2], [NaN, 3]], [[1, 2], [2147483648, 3]]]) {
+  let rejected = false;
+  try { formatBaselinePoints(invalid); }
+  catch { rejected = true; }
+  if (!rejected) throw new Error("Invalid baseline points were exported");
+}
 
 const sampled = samplePath({
   getTotalLength: () => 200,

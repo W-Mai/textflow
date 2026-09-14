@@ -1,4 +1,4 @@
-import { renderRust } from "./rust-highlight.js";
+import { renderRust } from "./code-highlight.js";
 
 function element(tag, className, text) {
   const node = document.createElement(tag);

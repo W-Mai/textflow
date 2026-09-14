@@ -2,7 +2,7 @@ import {readFileSync} from "node:fs";
 import init, {analyze_scene, feature_catalog, scene_catalog, scaffold_files, zip_files} from "./pkg/textflow_playground.js";
 import {FeatureGraph} from "./features.js";
 import {Stage, VIEWPORT_WIDTH, clipClusters, containsHitbox, stageSummary, viewportWidthAt} from "./stage.js";
-import {rustTokens} from "./rust-highlight.js";
+import {rustTokens, tomlTokens, markdownTokens} from "./code-highlight.js";
 import {ODYSSEY_TEXT, ODYSSEY_VERSE, samplePath} from "./baseline-examples.js";
 import {formatBaselinePoints} from "./baseline-code.js";
 import {buildTiles, glyphTarget, revealPulse, stepGlyph} from "./atmosphere.js";
@@ -129,6 +129,15 @@ const tokens = rustTokens(snippet);
 if (tokens.map((token) => token.text).join("") !== snippet) throw new Error("Rust highlighting changed source text");
 for (const kind of ["keyword", "type", "string", "number", "comment"]) {
   if (!tokens.some((token) => token.kind === kind)) throw new Error(`Missing Rust token kind: ${kind}`);
+}
+for (const [source, lexer, kinds] of [
+  ['[dependencies]\ntextflow-rs = { version = "1.2.3", features = [] }\n', tomlTokens, ["section", "key", "string"]],
+  ['# TextFlow demo\nRun `cargo run` with **features**.\n', markdownTokens, ["heading", "headingText", "code", "emphasis"]],
+]) {
+  const highlighted = lexer(source);
+  if (highlighted.map((token) => token.text).join("") !== source || kinds.some((kind) => !highlighted.some((token) => token.kind === kind))) {
+    throw new Error("Scaffold syntax highlighting changed source or missed a token kind");
+  }
 }
 
 const layout = {

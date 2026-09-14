@@ -22,5 +22,5 @@ node_command=(node)
 if node --experimental-default-type=module --eval "" >/dev/null 2>&1; then
   node_command+=(--experimental-default-type=module)
 fi
-for script in "$repo/playground/web/"{app,features,stage,docs,rust-highlight,baseline-examples,baseline-code,atmosphere}.js; do "${node_command[@]}" --check "$script"; done
+for script in "$repo/playground/web/"{app,features,stage,docs,code-highlight,baseline-examples,baseline-code,atmosphere}.js; do "${node_command[@]}" --check "$script"; done
 "${node_command[@]}" "$repo/playground/web/smoke.mjs"

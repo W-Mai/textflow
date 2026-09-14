@@ -1,7 +1,7 @@
 import { FeatureGraph, renderFeatures } from "./features.js";
 import { Stage, VIEWPORT_WIDTH, stageSummary } from "./stage.js";
 import { DocsView } from "./docs.js";
-import { renderRust } from "./rust-highlight.js";
+import { renderCode, renderRust } from "./code-highlight.js";
 import { loadPortrait, ODYSSEY_SOURCE, ODYSSEY_TEXT } from "./baseline-examples.js";
 import { formatBaselinePoints } from "./baseline-code.js";
 import { buildTiles, glyphTarget, revealPulse, stepGlyph } from "./atmosphere.js";
@@ -609,7 +609,7 @@ function renderScaffold() {
     return;
   }
   state.files = response.files;
-  $("scaffold-dependency").textContent = state.files[0]?.content ?? "";
+  renderCode($("scaffold-dependency"), state.files[0]?.content ?? "", "toml");
   const list = $("file-list");
   list.replaceChildren();
   if (!state.files.some((file) => file.path === state.selectedFile)) state.selectedFile = state.files[0]?.path;
@@ -625,11 +625,10 @@ function renderScaffold() {
   }
   const selected = state.files.find((file) => file.path === state.selectedFile);
   $("file-name").textContent = selected?.path ?? "";
-  if (selected?.path.endsWith(".rs")) {
-    renderRust($("file-source"), selected.content);
-  } else {
-    $("file-source").textContent = selected?.content ?? "";
-  }
+  if (!selected) return;
+  const language = selected.path.endsWith(".rs") ? "rust" : selected.path.endsWith(".toml") ? "toml" : selected.path.endsWith(".md") ? "markdown" : "plain";
+  if (language === "plain") $("file-source").textContent = selected.content;
+  else renderCode($("file-source"), selected.content, language);
 }
 
 function switchView(name) {

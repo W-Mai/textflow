@@ -72,6 +72,14 @@ function restoreBaseline(draft) {
   Object.assign(state.options, draft.settings);
 }
 
+function yuuuDraft() {
+  return {
+    text: ODYSSEY_TEXT,
+    path: state.portrait.points,
+    settings: {...captureBaseline().settings, fontSize: 16, smoothing: 0, motionEnabled: true, motionDepth: 16, motionSpeed: 0.6, geometryOverflow: "clip"},
+  };
+}
+
 async function selectBaselineExample(example) {
   if (state.scene !== "geometry" || example === state.baselineExample || !["draw", "yuuu"].includes(example) || exampleLoading) return;
   exampleLoading = true;
@@ -87,11 +95,7 @@ async function selectBaselineExample(example) {
   if (portrait) state.portrait = portrait;
   let draft = state.baselineDrafts[example];
   if (!draft) {
-    draft = {
-      text: ODYSSEY_TEXT,
-      path: state.portrait.points,
-      settings: {...captureBaseline().settings, fontSize: 16, smoothing: 0, motionEnabled: true, motionDepth: 16, motionSpeed: 0.6, geometryOverflow: "clip"},
-    };
+    draft = yuuuDraft();
     state.baselineDrafts[example] = draft;
   }
   restoreBaseline(draft);
@@ -663,10 +667,13 @@ async function initialize() {
     state.scenes = wasm.scene_catalog();
     $("version-pill").textContent = `v${state.catalog.version}`;
     $("engine-status").hidden = true;
-    const [features, docs, budget] = await Promise.allSettled([
+    const requestedView = new URLSearchParams(window.location.search).get("view");
+    const otherView = requestedView === "scaffold" || requestedView === "docs";
+    const [features, docs, budget, portrait] = await Promise.allSettled([
       fetch("./data/features.json").then((response) => { if (!response.ok) throw new Error("features.json unavailable"); return response.json(); }),
       fetch("./data/docs.json").then((response) => { if (!response.ok) throw new Error("docs.json unavailable"); return response.json(); }),
       fetch("./data/budget.json").then((response) => { if (!response.ok) throw new Error("budget.json unavailable"); return response.json(); }),
+      otherView ? Promise.resolve(null) : loadPortrait(),
     ]);
     if (features.status === "fulfilled") state.descriptions = new Map(features.value.features.map((feature) => [feature.name, feature.description]));
     if (docs.status === "fulfilled") {
@@ -679,9 +686,19 @@ async function initialize() {
     } else {
       $("budget-note").textContent = budget.status === "fulfilled" ? "Reference measurements do not match this release." : `Reference measurements unavailable: ${budget.reason}`;
     }
-    selectScene("core");
-    const requestedView = new URLSearchParams(window.location.search).get("view");
-    if (requestedView === "scaffold" || requestedView === "docs") switchView(requestedView);
+    if (otherView) {
+      selectScene("core");
+      switchView(requestedView);
+    } else {
+      if (portrait.status === "fulfilled") {
+        state.portrait = portrait.value;
+        state.baselineDrafts.draw = {...captureBaseline(), text: state.scenes.find((scene) => scene.id === "geometry").sample};
+        state.baselineExample = "yuuu";
+        state.baselineDrafts.yuuu = yuuuDraft();
+      }
+      selectScene("geometry");
+      if (portrait.status === "rejected") toast(String(portrait.reason));
+    }
   } catch (error) {
     $("engine-status").classList.add("is-error");
     $("engine-status").innerHTML = "<i></i> Could not load";

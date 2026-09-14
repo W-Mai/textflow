@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-14
+
 ### Added
 
 - Baselines accepts up to 512 hand-drawn anchors and places repeated Greek text along the complete yuuu portrait curve.
@@ -25,6 +27,10 @@
 - Scaffold examples use the released crate version, and the multilingual page background renders text without visible guide curves.
 - Baseline examples keep the selected font size in canvas pixels while fitting curves to the stage.
 - Clip hides incomplete glyph clusters at the viewport edge and reports the number of visible glyphs.
+
+### Changed
+
+- The crate homepage points to the browser Playground, and the published package excludes development tooling.
 
 ## [0.3.0] - 2026-09-13
 
@@ -88,7 +94,8 @@
 - Optional reusable `alloc` workspace with fixed admission limits.
 - Explicit capacity, font access, and unsupported-text errors.
 
-[Unreleased]: https://github.com/W-Mai/textflow/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/W-Mai/textflow/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/W-Mai/textflow/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/W-Mai/textflow/compare/v0.2.4...v0.3.0
 [0.2.4]: https://github.com/W-Mai/textflow/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/W-Mai/textflow/compare/v0.2.2...v0.2.3

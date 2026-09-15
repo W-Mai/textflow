@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "sourceHash": "ca570bbe5e191486585d16282c488effb428156f4d7e655e01808c292048d76c",
-  "crateVersion": "0.3.1",
+  "sourceHash": "6f244898d4a5ff27c2f001c1ecaec51fc5419a59ff6f024d1b55a27c1fb19d50",
+  "crateVersion": "0.3.2",
   "toolchain": {
     "rustc": "rustc 1.95.0-nightly (57d2fb136 2026-02-01)",
     "binaryen": "wasm-opt version 130",
@@ -72,7 +72,7 @@
         "shaping",
         "unicode"
       ],
-      "wasmBytes": 107107,
+      "wasmBytes": 106999,
       "initialPages": 18,
       "work": {
         "core": {
@@ -419,7 +419,7 @@
         "shaping",
         "unicode"
       ],
-      "wasmBytes": 90783,
+      "wasmBytes": 90684,
       "initialPages": 17,
       "work": {
         "core": {
@@ -465,7 +465,7 @@
         "shaping",
         "unicode"
       ],
-      "wasmBytes": 89234,
+      "wasmBytes": 89233,
       "initialPages": 17,
       "work": {
         "core": {
@@ -507,7 +507,7 @@
         "shaping",
         "unicode"
       ],
-      "wasmBytes": 85074,
+      "wasmBytes": 85073,
       "initialPages": 17,
       "work": {
         "core": {
@@ -548,7 +548,7 @@
         "shaping",
         "unicode"
       ],
-      "wasmBytes": 83474,
+      "wasmBytes": 83495,
       "initialPages": 17,
       "work": {
         "core": {
@@ -627,7 +627,7 @@
         "shaping",
         "unicode"
       ],
-      "wasmBytes": 85549,
+      "wasmBytes": 85550,
       "initialPages": 17,
       "work": {
         "core": {
@@ -700,7 +700,7 @@
         "shaping",
         "unicode"
       ],
-      "wasmBytes": 78660,
+      "wasmBytes": 78659,
       "initialPages": 17,
       "work": {
         "core": {
@@ -731,7 +731,7 @@
         "shaping",
         "unicode"
       ],
-      "wasmBytes": 73098,
+      "wasmBytes": 73097,
       "initialPages": 17,
       "work": {
         "core": {

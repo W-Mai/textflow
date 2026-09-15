@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-09-15
+
 ### Added
 
 - Glyph layout uses bundled Lato Regular metrics, pair kerning, and fi/fl ligatures for positioned Latin text.
@@ -118,7 +120,8 @@
 - Optional reusable `alloc` workspace with fixed admission limits.
 - Explicit capacity, font access, and unsupported-text errors.
 
-[Unreleased]: https://github.com/W-Mai/textflow/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/W-Mai/textflow/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/W-Mai/textflow/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/W-Mai/textflow/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/W-Mai/textflow/compare/v0.2.4...v0.3.0
 [0.2.4]: https://github.com/W-Mai/textflow/compare/v0.2.3...v0.2.4

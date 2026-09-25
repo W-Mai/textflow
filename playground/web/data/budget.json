@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "sourceHash": "6f244898d4a5ff27c2f001c1ecaec51fc5419a59ff6f024d1b55a27c1fb19d50",
-  "crateVersion": "0.3.2",
+  "sourceHash": "bf9618925aa200aa57bef5c5598eb1be1fcf5b2e818d44aa052882f6d30efb91",
+  "crateVersion": "0.3.3",
   "toolchain": {
     "rustc": "rustc 1.95.0-nightly (57d2fb136 2026-02-01)",
     "binaryen": "wasm-opt version 130",
@@ -21,7 +21,7 @@
         "shaping",
         "unicode"
       ],
-      "wasmBytes": 108649,
+      "wasmBytes": 108827,
       "initialPages": 18,
       "work": {
         "core": {
@@ -72,7 +72,7 @@
         "shaping",
         "unicode"
       ],
-      "wasmBytes": 106999,
+      "wasmBytes": 107285,
       "initialPages": 18,
       "work": {
         "core": {
@@ -119,7 +119,7 @@
         "shaping",
         "unicode"
       ],
-      "wasmBytes": 103026,
+      "wasmBytes": 103204,
       "initialPages": 18,
       "work": {
         "core": {
@@ -165,7 +165,7 @@
         "shaping",
         "unicode"
       ],
-      "wasmBytes": 101362,
+      "wasmBytes": 101540,
       "initialPages": 18,
       "work": {
         "core": {
@@ -208,7 +208,7 @@
         "shaping",
         "unicode"
       ],
-      "wasmBytes": 105068,
+      "wasmBytes": 105224,
       "initialPages": 18,
       "work": {
         "core": {
@@ -254,7 +254,7 @@
         "shaping",
         "unicode"
       ],
-      "wasmBytes": 103420,
+      "wasmBytes": 103598,
       "initialPages": 18,
       "work": {
         "core": {
@@ -296,7 +296,7 @@
         "shaping",
         "unicode"
       ],
-      "wasmBytes": 99010,
+      "wasmBytes": 99188,
       "initialPages": 18,
       "work": {
         "core": {
@@ -337,7 +337,7 @@
         "shaping",
         "unicode"
       ],
-      "wasmBytes": 96529,
+      "wasmBytes": 96708,
       "initialPages": 18,
       "work": {
         "core": {
@@ -373,7 +373,7 @@
         "shaping",
         "unicode"
       ],
-      "wasmBytes": 90649,
+      "wasmBytes": 90828,
       "initialPages": 18,
       "work": {
         "core": {
@@ -419,7 +419,7 @@
         "shaping",
         "unicode"
       ],
-      "wasmBytes": 90684,
+      "wasmBytes": 90762,
       "initialPages": 17,
       "work": {
         "core": {
@@ -507,7 +507,7 @@
         "shaping",
         "unicode"
       ],
-      "wasmBytes": 85073,
+      "wasmBytes": 85167,
       "initialPages": 17,
       "work": {
         "core": {
@@ -548,7 +548,7 @@
         "shaping",
         "unicode"
       ],
-      "wasmBytes": 83495,
+      "wasmBytes": 83496,
       "initialPages": 17,
       "work": {
         "core": {
@@ -627,7 +627,7 @@
         "shaping",
         "unicode"
       ],
-      "wasmBytes": 85550,
+      "wasmBytes": 85549,
       "initialPages": 17,
       "work": {
         "core": {
@@ -664,7 +664,7 @@
         "shaping",
         "unicode"
       ],
-      "wasmBytes": 81060,
+      "wasmBytes": 81145,
       "initialPages": 17,
       "work": {
         "core": {
@@ -757,7 +757,7 @@
         "bidi",
         "unicode"
       ],
-      "wasmBytes": 26738,
+      "wasmBytes": 26737,
       "initialPages": 17,
       "work": {
         "core": {

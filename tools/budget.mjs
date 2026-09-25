@@ -61,7 +61,7 @@ const work = [
 
 function measure(bytes, meteredPath) {
   const original = new WebAssembly.Instance(new WebAssembly.Module(bytes), {}).exports;
-  run("wasm-opt", ["--log-execution", artifact, "-o", meteredPath]);
+  run("wasm-opt", ["--log-execution", "--no-stack-ir", artifact, "-o", meteredPath]);
   const metered = new WebAssembly.Module(readFileSync(meteredPath));
   const imports = WebAssembly.Module.imports(metered);
   if (imports.length !== 1 || imports[0].name !== "log_execution" || imports[0].kind !== "function") {

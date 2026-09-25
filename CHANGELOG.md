@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- `TextWorkspace::try_new_bounded` reserves fixed private layout capacities before use, and `reserve_bounded` can increase those capacities explicitly.
+
 ## [0.3.2] - 2026-09-15
 
 ### Added

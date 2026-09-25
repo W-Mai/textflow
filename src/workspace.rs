@@ -19,6 +19,26 @@ pub struct LayoutLimits {
     pub memory_bytes: usize,
 }
 
+/// Capacities retained for private paragraph-layout intermediates.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct WorkspaceCapacity {
+    pub runs: usize,
+    pub glyphs: usize,
+    pub scratch_glyphs: usize,
+    pub lines: usize,
+}
+
+impl WorkspaceCapacity {
+    fn max(self, other: Self) -> Self {
+        Self {
+            runs: self.runs.max(other.runs),
+            glyphs: self.glyphs.max(other.glyphs),
+            scratch_glyphs: self.scratch_glyphs.max(other.scratch_glyphs),
+            lines: self.lines.max(other.lines),
+        }
+    }
+}
+
 impl LayoutLimits {
     /// Element storage for private buffers at their limits.
     ///
@@ -108,6 +128,7 @@ pub(crate) struct LayoutResult {
 /// Reusable heap storage for private paragraph-layout intermediates.
 pub struct TextWorkspace {
     limits: LayoutLimits,
+    fixed_capacity: Option<WorkspaceCapacity>,
     bidi: Vec<BidiRun>,
     logical: Vec<LogicalRun>,
     initial_glyphs: Vec<ShapedGlyph>,
@@ -121,6 +142,7 @@ impl TextWorkspace {
     pub const fn new(limits: LayoutLimits) -> Self {
         Self {
             limits,
+            fixed_capacity: None,
             bidi: Vec::new(),
             logical: Vec::new(),
             initial_glyphs: Vec::new(),
@@ -130,8 +152,94 @@ impl TextWorkspace {
         }
     }
 
+    /// Builds a bounded workspace, releasing any partial reservation on failure.
+    pub fn try_new_bounded(
+        limits: LayoutLimits,
+        capacity: WorkspaceCapacity,
+    ) -> Result<Self, WorkspaceError> {
+        let mut workspace = Self::new(limits);
+        workspace.reserve_bounded(capacity)?;
+        Ok(workspace)
+    }
+
     pub const fn limits(&self) -> LayoutLimits {
         self.limits
+    }
+
+    /// Reserves private storage and rejects subsequent growth beyond `capacity`.
+    ///
+    /// A failed reservation on an existing workspace may retain partial allocations;
+    /// use `try_new_bounded` when construction must be all-or-nothing.
+    pub fn reserve_bounded(&mut self, capacity: WorkspaceCapacity) -> Result<(), WorkspaceError> {
+        let capacity = self.fixed_capacity.unwrap_or_default().max(capacity);
+        let retained = WorkspaceCapacity {
+            runs: self
+                .bidi
+                .len()
+                .max(self.logical.len())
+                .max(self.initial_runs.len()),
+            glyphs: self.initial_glyphs.len(),
+            scratch_glyphs: self.scratch.len(),
+            lines: self.broken.len(),
+        };
+        for (kind, required, limit) in [
+            (BufferKind::Runs, retained.runs, capacity.runs),
+            (BufferKind::Glyphs, retained.glyphs, capacity.glyphs),
+            (
+                BufferKind::Scratch,
+                retained.scratch_glyphs,
+                capacity.scratch_glyphs,
+            ),
+            (BufferKind::Lines, retained.lines, capacity.lines),
+        ] {
+            if required > limit {
+                return Err(kind.limit_error(required, limit));
+            }
+        }
+        for (kind, required, limit) in [
+            (BufferKind::Runs, capacity.runs, self.limits.runs),
+            (BufferKind::Glyphs, capacity.glyphs, self.limits.glyphs),
+            (
+                BufferKind::Scratch,
+                capacity.scratch_glyphs,
+                self.limits.scratch_glyphs,
+            ),
+            (BufferKind::Lines, capacity.lines, self.limits.lines),
+        ] {
+            if required > limit {
+                return Err(kind.limit_error(required, limit));
+            }
+        }
+        let required = self
+            .projected_capacity_bytes(capacity)
+            .ok_or(WorkspaceError::DimensionOverflow)?;
+        if required > self.limits.memory_bytes {
+            return Err(WorkspaceError::MemoryLimit {
+                required,
+                limit: self.limits.memory_bytes,
+            });
+        }
+        let previous = self.fixed_capacity.replace(capacity);
+        let result = self
+            .grow(BufferKind::Runs, capacity.runs)
+            .and_then(|()| self.grow(BufferKind::Glyphs, capacity.glyphs))
+            .and_then(|()| self.grow(BufferKind::Scratch, capacity.scratch_glyphs))
+            .and_then(|()| self.grow(BufferKind::Lines, capacity.lines))
+            .and_then(|()| {
+                let actual = self.resident_bytes();
+                if actual > self.limits.memory_bytes {
+                    Err(WorkspaceError::MemoryLimit {
+                        required: actual,
+                        limit: self.limits.memory_bytes,
+                    })
+                } else {
+                    Ok(())
+                }
+            });
+        if result.is_err() {
+            self.fixed_capacity = previous;
+        }
+        result
     }
 
     /// Updates the private-buffer byte limit without releasing retained capacity.
@@ -277,11 +385,15 @@ impl TextWorkspace {
     }
 
     fn grow(&mut self, kind: BufferKind, required: usize) -> Result<(), WorkspaceError> {
-        let limit = match kind {
-            BufferKind::Runs => self.limits.runs,
-            BufferKind::Glyphs => self.limits.glyphs,
-            BufferKind::Scratch => self.limits.scratch_glyphs,
-            BufferKind::Lines => self.limits.lines,
+        let limit = match (kind, self.fixed_capacity) {
+            (BufferKind::Runs, Some(capacity)) => capacity.runs,
+            (BufferKind::Glyphs, Some(capacity)) => capacity.glyphs,
+            (BufferKind::Scratch, Some(capacity)) => capacity.scratch_glyphs,
+            (BufferKind::Lines, Some(capacity)) => capacity.lines,
+            (BufferKind::Runs, None) => self.limits.runs,
+            (BufferKind::Glyphs, None) => self.limits.glyphs,
+            (BufferKind::Scratch, None) => self.limits.scratch_glyphs,
+            (BufferKind::Lines, None) => self.limits.lines,
         };
         if required > limit {
             return Err(kind.limit_error(required, limit));
@@ -321,6 +433,16 @@ impl TextWorkspace {
             BufferKind::Lines => additional_bytes(&self.broken, required)?,
         };
         self.resident_bytes().checked_add(added)
+    }
+
+    fn projected_capacity_bytes(&self, capacity: WorkspaceCapacity) -> Option<usize> {
+        self.resident_bytes()
+            .checked_add(additional_bytes(&self.bidi, capacity.runs)?)?
+            .checked_add(additional_bytes(&self.logical, capacity.runs)?)?
+            .checked_add(additional_bytes(&self.initial_runs, capacity.runs)?)?
+            .checked_add(additional_bytes(&self.initial_glyphs, capacity.glyphs)?)?
+            .checked_add(additional_bytes(&self.scratch, capacity.scratch_glyphs)?)?
+            .checked_add(additional_bytes(&self.broken, capacity.lines)?)
     }
 }
 
@@ -533,6 +655,102 @@ mod tests {
             .with_layout(&flow, &typefaces, &mut workspace, |_| {})
             .unwrap();
         assert_eq!(workspace.resident_bytes(), resident);
+    }
+
+    #[test]
+    fn bounded_workspace_reserves_each_buffer_and_rejects_later_growth() {
+        let capacity = WorkspaceCapacity {
+            runs: 4,
+            glyphs: 8,
+            scratch_glyphs: 4,
+            lines: 4,
+        };
+        let mut workspace = TextWorkspace::try_new_bounded(limits(), capacity).unwrap();
+        let resident = workspace.resident_bytes();
+        assert!(resident > 0);
+        let source = Source;
+        let typeface = SimpleTypeface::new(&source);
+        let typefaces: [&dyn Typeface; 1] = [&typeface];
+        let mut output = OutputStorage::new();
+        for text in ["ab cd", "ef gh", "99 ms"] {
+            let flow = TextFlow::new(text, 3).with_line_height(10);
+            output
+                .with_layout(&flow, &typefaces, &mut workspace, |_| {})
+                .unwrap();
+        }
+        assert_eq!(workspace.resident_bytes(), resident);
+
+        let mut small = TextWorkspace::try_new_bounded(
+            limits(),
+            WorkspaceCapacity {
+                glyphs: 1,
+                ..capacity
+            },
+        )
+        .unwrap();
+        let before = small.resident_bytes();
+        let flow = TextFlow::new("ab", 3).with_line_height(10);
+        assert_eq!(
+            output.error(&flow, &typefaces, &mut small),
+            WorkspaceError::GlyphLimit {
+                required: 2,
+                limit: 1,
+            }
+        );
+        assert_eq!(small.resident_bytes(), before);
+    }
+
+    #[test]
+    fn bounded_reservation_validates_limits_and_budget_before_allocating() {
+        let capacity = WorkspaceCapacity {
+            runs: 4,
+            glyphs: 8,
+            scratch_glyphs: 4,
+            lines: 4,
+        };
+        let mut small_limit = limits();
+        small_limit.glyphs = 7;
+        assert!(matches!(
+            TextWorkspace::try_new_bounded(small_limit, capacity),
+            Err(WorkspaceError::GlyphLimit {
+                required: 8,
+                limit: 7,
+            })
+        ));
+
+        let mut small_budget = limits();
+        small_budget.memory_bytes = 1;
+        let mut workspace = TextWorkspace::new(small_budget);
+        assert!(matches!(
+            workspace.reserve_bounded(capacity),
+            Err(WorkspaceError::MemoryLimit { .. })
+        ));
+        assert_eq!(workspace.resident_bytes(), 0);
+    }
+
+    #[test]
+    fn bounded_reservation_cannot_claim_less_than_retained_storage() {
+        let source = Source;
+        let typeface = SimpleTypeface::new(&source);
+        let typefaces: [&dyn Typeface; 1] = [&typeface];
+        let mut workspace = TextWorkspace::new(limits());
+        let mut output = OutputStorage::new();
+        let flow = TextFlow::new("ab", 3).with_line_height(10);
+        output
+            .with_layout(&flow, &typefaces, &mut workspace, |_| {})
+            .unwrap();
+        let resident = workspace.resident_bytes();
+        assert_eq!(
+            workspace.reserve_bounded(WorkspaceCapacity::default()),
+            Err(WorkspaceError::RunLimit {
+                required: 1,
+                limit: 0,
+            })
+        );
+        assert_eq!(workspace.resident_bytes(), resident);
+        output
+            .with_layout(&flow, &typefaces, &mut workspace, |_| {})
+            .unwrap();
     }
 
     #[test]

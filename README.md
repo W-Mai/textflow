@@ -26,7 +26,7 @@
 
 ---
 
-`TextFlow` provides line breaking, bidirectional text, glyph shaping, font fallback, visual runs, and caret positioning. Caller-owned buffers make memory use explicit, while the optional `alloc` feature provides a bounded workspace that grows private pipeline storage on demand and reuses it.
+`TextFlow` provides line breaking, bidirectional text, glyph shaping, font fallback, visual runs, and caret positioning. Caller-owned buffers make memory use explicit. The optional `alloc` feature provides a workspace that either grows private pipeline storage on demand or reserves fixed capacities before layout.
 
 <p align="center">
   <img src="assets/textflow-architecture.svg" alt="TextFlow architecture: UTF-8 input passes through Unicode analysis, bidirectional resolution, typeface shaping, and line layout into positioned glyphs, with optional baseline placement" width="1200">
@@ -98,11 +98,13 @@ Open `http://127.0.0.1:8137/`. The display uses a synthetic glyph source; layout
 - Stable glyph IDs, UTF-8 cluster ranges, visual bidi runs, safe line boundaries, and caret positions.
 - Borrowed per-line widths let shaped paragraphs follow baselines with different usable lengths.
 - Optional baseline placement maps positioned glyphs and carets onto borrowed line, polyline, or indexed provider geometry using caller-owned frame buffers.
-- Optional reusable heap workspace with element and byte limits, lazy growth, and direct caller-owned output.
+- Optional reusable heap workspace with element and byte limits, lazy growth or fixed pre-reserved capacities, and direct caller-owned output.
 
 ## Embedded footprint
 
 The [ESP32-C3 demo](examples/esp32c3/) runs bidirectional resolution, font selection, shaping, wrapping, visual reordering, glyph positioning, and caret generation without an allocator. One fixed-capacity `LayoutScratch` value owns all reusable working storage.
+
+With `alloc` enabled, `TextWorkspace::try_new_bounded(limits, capacity)` reserves the private run, glyph, scratch-glyph, and line buffers before layout. Later requests beyond those capacities return a capacity error. Final glyphs, visual runs, lines, and carets still belong to the caller and need separately sized output slices; `LayoutLimits::memory_bytes` covers only the workspace's private buffers.
 
 Measured with Rust 1.97.0, `esp-hal` 1.1.0, size optimization, LTO, one codegen unit, and aborting panics:
 
@@ -125,7 +127,7 @@ The demo's main stack frame is 2,272 B, including a 2,016 B `LayoutScratch`. Hea
 | `script-arabic` | Arabic joining forms, ligatures, cursive attachment, and mark positioning |
 | `script-thai` | Thai cluster substitution and mark positioning |
 | `script-devanagari` | Devanagari conjunct forms, pre-base matra reordering, and mark positioning |
-| `alloc` | Reusable bounded workspace for private shaping intermediates |
+| `alloc` | Reusable workspace with lazy growth or fixed pre-reserved private shaping storage |
 
 Default features are empty. The current Unicode and shaping implementation intentionally supports a defined subset and returns capability errors for unsupported scripts, controls, clusters, and font features.
 
